@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Mastodon{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Mastodon-koppeling</h1>
+  {% if client.configured %}
+    <p>Instance: <strong>{{ client.instance }}</strong> · zichtbaarheid: <strong>{{ client.visibility }}</strong></p>
+    <form method="post"><button class="secondary">Test verbinding</button></form>
+    {% if account %}<p>✅ Verbonden als <a href="{{ account.url }}" target="_blank" rel="noopener">@{{ account.acct }}</a></p>{% endif %}
+  {% else %}
+    <p class="flash error">Nog niet ingesteld.</p>
+  {% endif %}
+  <h2>Instellen</h2>
+  <ol>
+    <li>Ga op je Mastodon-server naar <em>Voorkeuren → Ontwikkelaars → Nieuwe applicatie</em>.</li>
+    <li>Geef het een naam (bijv. “Have I read that”) en vink alleen de scope <code>write:statuses</code> aan (plus <code>read:accounts</code> als je de verbindingstest wilt gebruiken).</li>
+    <li>Kopieer het <em>toegangstoken</em> en zet het in <code>MASTODON_ACCESS_TOKEN</code>, met je server in <code>MASTODON_INSTANCE</code> (bijv. <code>mastodon.social</code>).</li>
+    <li>Herstart de container.</li>
+  </ol>
+</section>
+<section class="card">
+  <h2>Voorbeeld van je toots</h2>
+  <p class="muted">Aan te passen met <code>MASTODON_TEMPLATE_FINISHED</code> en <code>MASTODON_TEMPLATE_STARTED</code>. Beschikbaar: <code>{title}</code> <code>{author}</code> <code>{stars}</code> <code>{rating}</code> <code>{review}</code> <code>{isbn}</code>.</p>
+  <div class="two">
+    <pre class="toot">{{ preview_started }}</pre>
+    <pre class="toot">{{ preview_finished }}</pre>
+  </div>
+</section>
+{% endblock %}

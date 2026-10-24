@@ -1,0 +1,5 @@
+{% set url = cover_url(b.isbn, size) %}
+<div class="cover {{ size }}">
+  {% if url %}<img src="{{ url }}" alt="" loading="lazy" onerror="this.remove()">{% endif %}
+  <span>{{ b.title[:40] }}</span>
+</div>

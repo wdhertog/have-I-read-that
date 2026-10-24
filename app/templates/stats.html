@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Statistieken{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Gelezen per jaar</h1>
+  {% if not years %}<p class="muted">Nog geen uitgelezen boeken met een datum.</p>{% endif %}
+  <table class="bars">
+    {% for y in years %}
+    <tr {% if y.year == year %}class="current"{% endif %}>
+      <th><a href="{{ url_for('main.stats', year=y.year) }}">{{ y.year }}</a></th>
+      <td class="bar"><span style="width: {{ (100 * y.books / max_books)|round(1) }}%"></span></td>
+      <td>{{ y.books }} {{ 'boek' if y.books == 1 else 'boeken' }}</td>
+      <td class="muted">{{ '{:,}'.format(y.pages).replace(',', '.') if y.pages else '' }}{{ ' pag.' if y.pages }}</td>
+      <td class="muted">{{ '⌀ %s ★'|format(y.avg_rating) if y.avg_rating }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+{% if books %}
+<section class="card">
+  <h2>Gelezen in {{ year }}</h2>
+  <div class="shelf">
+    {% for b in books %}
+      <a href="{{ url_for('main.book', book_id=b.id) }}" title="{{ b.title }} — {{ b.author }} ({{ b.finished }})">
+        {% with size='M' %}{% include "_cover.html" %}{% endwith %}
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if top_authors %}
+<section class="card">
+  <h2>Meest gelezen auteurs</h2>
+  <ol>{% for a in top_authors %}<li>{{ a.author }} <span class="muted">({{ a.n }})</span></li>{% endfor %}</ol>
+</section>
+{% endif %}
+{% endblock %}
