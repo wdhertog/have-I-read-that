@@ -5,3 +5,13 @@ venv/
 data/
 .env
 .pytest_cache/
+server/vendor/
+server/.env
+server/.phpunit.cache/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+server/.phpunit.result.cache

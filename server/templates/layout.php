@@ -1,0 +1,32 @@
+<?php /** @var App\View $v */ ?>
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><?= $v->e(($title ?? null) ? $title . ' · ' : '') ?>Have I read that?</title>
+  <link rel="stylesheet" href="<?= $v->url('/assets/style.css') ?>">
+</head>
+<body>
+  <?php if ($loggedIn): ?>
+  <header class="top">
+    <a class="brand" href="<?= $v->url('/books') ?>">📚 Have I read that?</a>
+    <nav>
+      <a href="<?= $v->url('/books') ?>">Boeken</a>
+      <a href="<?= $v->url('/books/add') ?>">+ Toevoegen</a>
+      <a href="<?= $v->url('/stats') ?>">Statistieken</a>
+      <a href="<?= $v->url('/import') ?>">Import</a>
+      <a href="<?= $v->url('/settings') ?>">Instellingen</a>
+      <?php if ($publicPage): ?><a href="<?= $v->url('/') ?>">Openbaar</a><?php endif ?>
+      <form method="post" action="<?= $v->url('/logout') ?>" class="inline"><?= $v->csrf() ?><button class="link">Uitloggen</button></form>
+    </nav>
+  </header>
+  <?php endif ?>
+  <main>
+    <?php foreach ($flashes as [$category, $message]): ?>
+      <div class="flash <?= $v->e($category) ?>"><?= $v->e($message) ?></div>
+    <?php endforeach ?>
+    <?= $content ?>
+  </main>
+</body>
+</html>
