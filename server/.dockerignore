@@ -1,0 +1,7 @@
+vendor
+tests
+.env
+.phpunit.cache
+phpunit.xml
+docker-compose.yml
+Dockerfile
