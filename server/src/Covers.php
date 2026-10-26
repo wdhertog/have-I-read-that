@@ -10,7 +10,8 @@ namespace App;
  * In the covers folder:
  * - "book-{id}.jpg"   a cover you uploaded yourself (wins over everything else)
  * - "isbn-{isbn}.jpg" a copy of Open Library's cover
- * - "isbn-{isbn}.none" Open Library had none; asked again after a week
+ * - "isbn-{isbn}.none" no source had one; asked again after a week, or right away
+ *   when the list of sources changed
  */
 final class Covers
 {
@@ -22,8 +23,11 @@ final class Covers
     /** @var \Closure(?string): ?array{bytes: string, mime: string} */
     private \Closure $fetcher;
 
-    /** @param (callable(?string): ?array{bytes: string, mime: string})|null $fetcher For tests; defaults to Open Library. */
-    public function __construct(private string $dir, ?callable $fetcher = null)
+    /**
+     * @param (callable(?string): ?array{bytes: string, mime: string})|null $fetcher Usually Catalog::cover; Open Library alone by default.
+     * @param string $sourcesKey Which sources the fetcher asks, so "none found" is retried when that changes.
+     */
+    public function __construct(private string $dir, ?callable $fetcher = null, private string $sourcesKey = '')
     {
         $this->fetcher = \Closure::fromCallable($fetcher ?? [OpenLibrary::class, 'fetchCover']);
     }
@@ -61,14 +65,15 @@ final class Covers
         if (is_file($cached)) {
             return ['bytes' => (string) file_get_contents($cached), 'mime' => 'image/jpeg'];
         }
-        if (is_file($missing) && filemtime($missing) > time() - self::RETRY_MISSING_AFTER) {
+        if (is_file($missing) && filemtime($missing) > time() - self::RETRY_MISSING_AFTER
+            && file_get_contents($missing) === $this->sourcesKey) {
             return null;
         }
         $this->ensureDir();
         $cover = ($this->fetcher)($isbn);
         $jpeg = $cover ? self::toJpeg($cover['bytes']) : null;
         if ($jpeg === null) {
-            @touch($missing);
+            @file_put_contents($missing, $this->sourcesKey);
             return null;
         }
         file_put_contents($cached, $jpeg, LOCK_EX);

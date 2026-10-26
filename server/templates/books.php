@@ -28,6 +28,7 @@
           <span class="badge <?= $b['status'] ?>"><?= $statuses[$b['status']] ?></span>
           <?php if ($b['rating']): ?><span class="stars"><?= $v->stars($b['rating']) ?></span><?php endif ?>
           <?php if ($b['last_finished']): ?><span class="muted"><?= $v->e($b['last_finished']) ?></span><?php endif ?>
+          <?php if ($b['lent_to']): ?><span class="badge lent">📕 bij <?= $v->e($b['lent_to']) ?></span><?php endif ?>
         </div>
         <?php if ($b['status'] === 'reading'): ?><?= $v->partial('_progress', ['b' => $b]) ?><?php endif ?>
       </div>

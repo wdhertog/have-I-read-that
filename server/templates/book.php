@@ -13,7 +13,7 @@
     </p>
     <?= $v->partial('_progress', ['b' => $book]) ?>
     <dl>
-      <?php foreach (['contributors' => 'Medewerkers', 'isbn' => 'ISBN', 'pages' => "Pagina's", 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods'] as $key => $label): ?>
+      <?php foreach (['contributors' => 'Medewerkers', 'isbn' => 'ISBN', 'pages' => "Pagina's", 'publisher' => 'Uitgever', 'published_year' => 'Jaar', 'language' => 'Taal', 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods'] as $key => $label): ?>
         <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?= $v->e($book[$key]) ?></dd><?php endif ?>
       <?php endforeach ?>
       <?php foreach ($book['details'] ?? [] as $name => $value): ?>
@@ -27,6 +27,11 @@
     <?php if ($book['review']): ?><blockquote><?= $v->e($book['review']) ?></blockquote><?php endif ?>
     <div class="actions">
       <a class="button secondary" href="<?= $v->url("/books/{$book['id']}/edit") ?>">Bewerken</a>
+      <?php if ($book['isbn']): ?>
+      <form method="post" action="<?= $v->url("/books/{$book['id']}/enrich") ?>" class="inline" title="Lege velden en de cover opzoeken bij de KB, Open Library en Google Books">
+        <?= $v->csrf() ?><button class="secondary">Gegevens aanvullen</button>
+      </form>
+      <?php endif ?>
       <form method="post" action="<?= $v->url("/books/{$book['id']}/delete") ?>" class="inline" data-confirm="Dit boek verwijderen?">
         <?= $v->csrf() ?><button class="danger">Verwijderen</button>
       </form>
@@ -78,6 +83,37 @@
 </section>
 <?php endif ?>
 </div>
+
+<section class="card" id="uitlenen">
+  <h2>Uitlenen</h2>
+  <?php $current = array_values(array_filter($loans, static fn ($l) => $l['returned_on'] === null))[0] ?? null; ?>
+  <?php if ($current): ?>
+    <p>📕 Uitgeleend aan <strong><?= $v->e($current['borrower']) ?></strong> sinds <?= $v->e($current['lent_on']) ?> (<?= (int) $current['days'] ?> dagen)<?= $current['note'] ? ' · ' . $v->e($current['note']) : '' ?>.</p>
+    <form method="post" action="<?= $v->url("/books/{$book['id']}/return") ?>" class="row">
+      <?= $v->csrf() ?>
+      <label>Teruggekregen op <input type="date" name="date" value="<?= $today ?>"></label>
+      <button>Teruggekregen</button>
+    </form>
+  <?php else: ?>
+    <?php if (!$book['owned']): ?><p class="muted">Dit boek staat niet als “in bezit”, maar uitlenen kan natuurlijk toch.</p><?php endif ?>
+    <form method="post" action="<?= $v->url("/books/{$book['id']}/lend") ?>" class="grid">
+      <?= $v->csrf() ?>
+      <label>Aan <input name="borrower" list="borrowers" maxlength="100" required autocomplete="off"></label>
+      <label>Sinds <input type="date" name="date" value="<?= $today ?>"></label>
+      <label class="wide">Notitie <input name="note" maxlength="500" placeholder="bijv. met boekenlegger"></label>
+      <datalist id="borrowers"><?php foreach ($borrowers as $name): ?><option value="<?= $v->e($name) ?>"><?php endforeach ?></datalist>
+      <div class="wide"><button class="secondary">Uitlenen</button></div>
+    </form>
+  <?php endif ?>
+  <?php $past = array_filter($loans, static fn ($l) => $l['returned_on'] !== null); if ($past): ?>
+    <details><summary>Eerder uitgeleend (<?= count($past) ?>)</summary>
+      <?php foreach ($past as $l): ?>
+        <div class="loan-row muted"><a href="<?= $v->url('/loans') ?>"><?= $v->e($l['borrower']) ?></a> <?= $v->e($l['lent_on']) ?> – <?= $v->e($l['returned_on']) ?>
+          <form method="post" action="<?= $v->url("/loans/{$l['id']}/delete") ?>" class="inline" data-confirm="Uit de geschiedenis halen?"><?= $v->csrf() ?><button class="link">verwijder</button></form></div>
+      <?php endforeach ?>
+    </details>
+  <?php endif ?>
+</section>
 
 <section class="card" id="notities">
   <h2>Notities en citaten</h2>

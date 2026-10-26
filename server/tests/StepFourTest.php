@@ -35,7 +35,7 @@ final class StepFourTest extends TestCase
             self::markTestSkipped('No test database: ' . $e->getMessage());
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['posts', 'notes', '`reads`', 'books', 'api_tokens', 'login_attempts', 'goals', 'settings', 'schema_migrations'] as $table) {
+        foreach (['posts', 'notes', 'loans', '`reads`', 'books', 'api_tokens', 'login_attempts', 'goals', 'settings', 'schema_migrations'] as $table) {
             $this->db->exec("DROP TABLE IF EXISTS {$table}");
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 1');

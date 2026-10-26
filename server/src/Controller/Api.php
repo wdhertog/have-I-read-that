@@ -7,7 +7,6 @@ namespace App\Controller;
 use App\App;
 use App\Books;
 use App\MastodonException;
-use App\OpenLibrary;
 use App\Request;
 use App\Response;
 use InvalidArgumentException;
@@ -216,6 +215,34 @@ final class Api
         return Response::json(['toot' => $toot], $toot['posted'] ? 200 : 502);
     }
 
+    public function loans(Request $request): Response
+    {
+        return Response::json(['people' => $this->app->loans->byPerson(), 'borrowers' => $this->app->loans->borrowers()]);
+    }
+
+    public function lend(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->notFound();
+        }
+        $input = $request->json();
+        try {
+            $this->app->loans->lend($id, $input['borrower'] ?? null, Books::validDate($input['date'] ?? null), $input['note'] ?? null);
+        } catch (InvalidArgumentException $e) {
+            return Response::json(['error' => $e->getMessage()], 422);
+        }
+        return Response::json(['book' => $this->detail($this->app->books->find($id))]);
+    }
+
+    public function returnBook(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->notFound();
+        }
+        $this->app->loans->returnBook($id, Books::validDate($request->json()['date'] ?? null));
+        return Response::json(['book' => $this->detail($this->app->books->find($id))]);
+    }
+
     public function collections(Request $request): Response
     {
         return Response::json(['shelves' => $this->app->books->shelves(), 'series' => $this->app->books->seriesList()]);
@@ -248,7 +275,7 @@ final class Api
             return Response::json(['error' => 'Geef een zoekterm.'], 422);
         }
         try {
-            return Response::json(['results' => OpenLibrary::search($q, 10), 'error' => null]);
+            return Response::json(['results' => $this->app->catalog->search($q, 10), 'error' => null]);
         } catch (\RuntimeException $e) {
             return Response::json(['results' => [], 'error' => $e->getMessage()]);
         }
@@ -262,13 +289,8 @@ final class Api
             return Response::json(['error' => 'Ongeldig ISBN.'], 422);
         }
         $existing = $this->app->books->findByIsbn($isbn);
-        try {
-            $result = OpenLibrary::byIsbn($isbn);
-            $error = null;
-        } catch (\RuntimeException $e) {
-            $result = null;
-            $error = $e->getMessage();
-        }
+        $result = $this->app->catalog->lookup($isbn);
+        $error = $result === null ? 'Niet gevonden bij ' . implode(', ', $this->app->catalog->metadataSources()) . '.' : null;
         return Response::json([
             'isbn' => $isbn,
             'existing' => $existing ? $this->present($existing) : null,
@@ -308,6 +330,10 @@ final class Api
             $out[$key] = $book[$key] ?? null;
         }
         $out['details'] = (object) ($book['details'] ?? []);
+        $out['lent_to'] = $book['lent_to'] ?? null;
+        $out['lent_since'] = $book['lent_since'] ?? null;
+        $out['publisher'] = $book['publisher'] ?? null;
+        $out['published_year'] = $book['published_year'] ?? null;
         $out['progress_page'] = $book['progress_page'] ?? null;
         $out['progress_percent'] = $book['progress_percent'] ?? null;
         $out['cover_url'] = $this->app->coverUrl($book, absolute: true);
@@ -326,6 +352,7 @@ final class Api
             'reads' => $reads,
             'posts' => $this->app->books->posts($book['id']),
             'notes' => $this->app->books->notes($book['id']),
+            'loans' => $this->app->loans->forBook($book['id']),
             'toot_preview' => [
                 'started' => $this->app->tooter->compose($book, 'started'),
                 'finished' => $this->app->tooter->compose($book, 'finished'),

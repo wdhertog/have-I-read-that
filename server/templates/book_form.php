@@ -56,6 +56,8 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
     </label>
     <label>Beoordeling (0–5) <input name="rating" type="number" min="0.25" max="5" step="0.25" value="<?= $val('rating') ?>"></label>
     <label>Tags / planken <input name="tags" value="<?= $val('tags') ?>" placeholder="fantasy, bieb"></label>
+    <label>Uitgever <input name="publisher" value="<?= $val('publisher') ?>" maxlength="255"></label>
+    <label>Jaar <input name="published_year" value="<?= $val('published_year') ?>" inputmode="numeric" maxlength="4"></label>
     <label>Serie <input name="series" value="<?= $val('series') ?>" maxlength="255"></label>
     <label>Deel <input name="series_number" value="<?= $v->e(isset($book['series_number']) && $book['series_number'] !== null && $book['series_number'] !== '' ? rtrim(rtrim(str_replace('.', ',', (string) $book['series_number']), '0'), ',') : '') ?>" inputmode="decimal" placeholder="3 of 2,5"></label>
     <?php if (!$edit): ?>

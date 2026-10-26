@@ -29,7 +29,9 @@ final class Books
     private const SELECT_BOOK = "SELECT b.*,
             (SELECT MAX(r.finished) FROM `reads` r WHERE r.book_id = b.id) AS last_finished,
             (SELECT r.progress_page FROM `reads` r WHERE r.book_id = b.id AND r.finished IS NULL ORDER BY r.id DESC LIMIT 1) AS progress_page,
-            (SELECT r.progress_percent FROM `reads` r WHERE r.book_id = b.id AND r.finished IS NULL ORDER BY r.id DESC LIMIT 1) AS progress_percent
+            (SELECT r.progress_percent FROM `reads` r WHERE r.book_id = b.id AND r.finished IS NULL ORDER BY r.id DESC LIMIT 1) AS progress_percent,
+            (SELECT l.borrower FROM loans l WHERE l.book_id = b.id AND l.returned_on IS NULL ORDER BY l.id DESC LIMIT 1) AS lent_to,
+            (SELECT l.lent_on FROM loans l WHERE l.book_id = b.id AND l.returned_on IS NULL ORDER BY l.id DESC LIMIT 1) AS lent_since
         FROM books b";
 
     public function __construct(private PDO $db)
@@ -65,6 +67,8 @@ final class Books
             'rating' => $str('rating', 20),
             'series' => $str('series', 255),
             'series_number' => $str('series_number', 20),
+            'publisher' => $str('publisher', 255),
+            'published_year' => $str('published_year', 10),
             'owned' => in_array($input['owned'] ?? null, ['on', '1', 1, true], true) ? 1 : 0,
         ];
         if ($data['title'] === null) {
@@ -85,6 +89,12 @@ final class Books
         }
         $data['rating'] = self::validateRating($data['rating']);
         $data['tags'] = self::normalizeTags($data['tags']);
+        if ($data['published_year'] !== null) {
+            if (!ctype_digit($data['published_year']) || (int) $data['published_year'] < 1000 || (int) $data['published_year'] > 2999) {
+                throw new InvalidArgumentException('Jaar moet een jaartal zijn, bijv. 1947.');
+            }
+            $data['published_year'] = (int) $data['published_year'];
+        }
         if ($data['series_number'] !== null) {
             $number = str_replace(',', '.', $data['series_number']);
             if (!is_numeric($number) || (float) $number < 0 || (float) $number > 99999) {
@@ -359,10 +369,12 @@ final class Books
         $this->db->beginTransaction();
         try {
             $this->query(
-                'INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, owned, series, series_number, date_added)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())',
+                'INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, owned, series, series_number,
+                                    publisher, published_year, date_added)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())',
                 [$data['title'], $data['author'], $data['isbn'], $data['format'], $data['pages'], $data['status'],
-                 $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number']],
+                 $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number'],
+                 $data['publisher'], $data['published_year']],
             );
             $id = (int) $this->db->lastInsertId();
             $today = date('Y-m-d');
@@ -384,10 +396,11 @@ final class Books
     {
         $this->query(
             'UPDATE books SET title = ?, author = ?, isbn = ?, format = ?, pages = ?, status = ?, rating = ?,
-                    review = ?, tags = ?, owned = ?, series = ?, series_number = ?
+                    review = ?, tags = ?, owned = ?, series = ?, series_number = ?, publisher = ?, published_year = ?
              WHERE id = ?',
             [$data['title'], $data['author'], $data['isbn'], $data['format'], $data['pages'], $data['status'],
-             $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number'], $id],
+             $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number'],
+             $data['publisher'], $data['published_year'], $id],
         );
     }
 
@@ -537,6 +550,53 @@ final class Books
         }
         $goals = array_map('intval', $this->query('SELECT year, books FROM goals ORDER BY year')->fetchAll(PDO::FETCH_KEY_PAIR));
         return ['books' => $books, 'goals' => $goals];
+    }
+
+    /** Catalogue field => [column, Dutch name]; only empty columns get filled. */
+    private const ENRICH_FIELDS = [
+        'author' => ['author', 'auteur'], 'pages' => ['pages', "pagina's"], 'publisher' => ['publisher', 'uitgever'],
+        'year' => ['published_year', 'jaar'], 'language' => ['language', 'taal'],
+    ];
+
+    /**
+     * Fill a book's empty fields from a catalogue lookup (Catalog::lookup). Never
+     * overwrites what's there. Marks the book as looked up either way.
+     *
+     * @param array<string, mixed> $book
+     * @param array<string, mixed>|null $info
+     * @return list<string> What was filled in.
+     */
+    public function fillFromCatalog(array $book, ?array $info): array
+    {
+        $set = [];
+        $changes = [];
+        foreach (self::ENRICH_FIELDS as $field => [$column, $label]) {
+            $value = $info[$field] ?? null;
+            $empty = ($book[$column] ?? null) === null || $book[$column] === '';
+            if ($empty && $value !== null && $value !== '') {
+                $set[$column] = is_string($value) ? mb_substr($value, 0, $column === 'language' ? 20 : 255) : $value;
+                $changes[] = $label;
+            }
+        }
+        $columns = implode(', ', array_map(static fn (string $c) => "{$c} = ?", array_keys($set)));
+        $this->query(
+            'UPDATE books SET ' . ($columns !== '' ? $columns . ', ' : '') . 'enriched_at = NOW() WHERE id = ?',
+            [...array_values($set), $book['id']],
+        );
+        return $changes;
+    }
+
+    /** @return list<array<string, mixed>> Books with an ISBN that were never looked up. */
+    public function toEnrich(int $limit): array
+    {
+        return array_map([self::class, 'cast'], $this->query(
+            self::SELECT_BOOK . " WHERE b.isbn IS NOT NULL AND b.isbn != '' AND b.enriched_at IS NULL ORDER BY b.id LIMIT " . max(1, $limit),
+        )->fetchAll());
+    }
+
+    public function countToEnrich(): int
+    {
+        return (int) $this->query("SELECT COUNT(*) FROM books WHERE isbn IS NOT NULL AND isbn != '' AND enriched_at IS NULL")->fetchColumn();
     }
 
     /** Delete a read and return the book it belonged to. */
@@ -761,6 +821,9 @@ final class Books
         $book['id'] = (int) $book['id'];
         $book['rating'] = $book['rating'] !== null ? (float) $book['rating'] : null;
         $book['pages'] = $book['pages'] !== null ? (int) $book['pages'] : null;
+        if (array_key_exists('published_year', $book)) {
+            $book['published_year'] = $book['published_year'] !== null ? (int) $book['published_year'] : null;
+        }
         if (array_key_exists('series_number', $book)) {
             $book['series_number'] = $book['series_number'] !== null ? (float) $book['series_number'] : null;
         }
