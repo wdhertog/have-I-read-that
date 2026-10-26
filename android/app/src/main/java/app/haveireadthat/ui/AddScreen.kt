@@ -62,6 +62,11 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, sha
     var author by rememberSaveable { mutableStateOf("") }
     var isbn by rememberSaveable { mutableStateOf("") }
     var pages by rememberSaveable { mutableStateOf("") }
+    // From a scanned ISBN: saved with the book without showing extra fields.
+    var publisher by rememberSaveable { mutableStateOf<String?>(null) }
+    var year by rememberSaveable { mutableStateOf<Int?>(null) }
+    var series by rememberSaveable { mutableStateOf<String?>(null) }
+    var seriesNumber by rememberSaveable { mutableStateOf<Double?>(null) }
     var status by rememberSaveable { mutableStateOf("reading") }
     var toot by rememberSaveable { mutableStateOf(settings.postByDefault) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
@@ -74,6 +79,10 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, sha
         busy = true
         message = "Opzoeken…"
         existingId = null
+        publisher = null
+        year = null
+        series = null
+        seriesNumber = null
         scope.launch {
             try {
                 val result = settings.client().lookup(code)
@@ -89,6 +98,10 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, sha
                         title = found.title
                         author = found.author
                         pages = found.pages?.toString().orEmpty()
+                        publisher = found.publisher
+                        year = found.year
+                        series = found.series
+                        seriesNumber = found.seriesNumber
                         message = null
                     }
                     else -> message = result.error?.let { "Opzoeken mislukt: $it" }
@@ -162,6 +175,10 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, sha
                         isbn = isbn.trim().ifEmpty { null },
                         pages = pages.toIntOrNull(),
                         status = status,
+                        publisher = publisher,
+                        publishedYear = year,
+                        series = series,
+                        seriesNumber = seriesNumber,
                         toot = toot && (status == "reading" || status == "read"),
                         allowDuplicate = allowDuplicate,
                     )
@@ -230,6 +247,10 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, sha
                                         author = result.author
                                         isbn = result.isbn
                                         pages = result.pages?.toString().orEmpty()
+                                        publisher = result.publisher
+                                        year = result.year
+                                        series = result.series
+                                        seriesNumber = result.seriesNumber
                                         results = emptyList()
                                         message = null
                                     }

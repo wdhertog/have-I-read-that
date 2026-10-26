@@ -556,6 +556,7 @@ final class Books
     private const ENRICH_FIELDS = [
         'author' => ['author', 'auteur'], 'pages' => ['pages', "pagina's"], 'publisher' => ['publisher', 'uitgever'],
         'year' => ['published_year', 'jaar'], 'language' => ['language', 'taal'],
+        'series' => ['series', 'serie'], 'series_number' => ['series_number', 'deel'],
     ];
 
     /**
@@ -573,6 +574,9 @@ final class Books
         foreach (self::ENRICH_FIELDS as $field => [$column, $label]) {
             $value = $info[$field] ?? null;
             $empty = ($book[$column] ?? null) === null || $book[$column] === '';
+            if ($field === 'series_number') {
+                $empty = $empty && isset($set['series']); // a number only belongs with the series it came with
+            }
             if ($empty && $value !== null && $value !== '') {
                 $set[$column] = is_string($value) ? mb_substr($value, 0, $column === 'language' ? 20 : 255) : $value;
                 $changes[] = $label;

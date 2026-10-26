@@ -101,7 +101,7 @@ final class Kb
         return count($parts) >= 2 ? trim($parts[1] . ' ' . $parts[0]) : $creator;
     }
 
-    private static function toIsbn10(string $isbn13): string
+    public static function toIsbn10(string $isbn13): string
     {
         $core = substr($isbn13, 3, 9);
         $sum = 0;

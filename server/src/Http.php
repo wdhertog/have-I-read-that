@@ -23,7 +23,8 @@ final class Http
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
             CURLOPT_TIMEOUT => $timeout,
-            CURLOPT_USERAGENT => 'have-i-read-that',
+            // Wikimedia asks for a name and a way to find out who's calling.
+            CURLOPT_USERAGENT => 'have-i-read-that/1.0 (+https://github.com/wdhertog/have-I-read-that)',
             CURLOPT_WRITEFUNCTION => static function ($ch, string $chunk) use (&$body, $maxBytes): int {
                 $body .= $chunk;
                 return strlen($body) > $maxBytes ? 0 : strlen($chunk);
