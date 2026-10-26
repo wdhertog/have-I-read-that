@@ -361,6 +361,12 @@ XML;
         self::assertCount(1, $asked);
         self::assertNull(Wikidata::parseSummary('{"type":"disambiguation","extract":"Kan verwijzen naar"}'));
         self::assertNull(Wikidata::parseDetails('<html>Too many requests'));
+        // A title, year or genre of only digits stays text (PHP turns such array keys into ints).
+        $digits = json_encode(['results' => ['bindings' => [
+            ['direct' => ['value' => '0'], 'prop' => ['value' => 'title'], 'value' => ['value' => '1984']],
+            ['direct' => ['value' => '0'], 'prop' => ['value' => 'genre'], 'value' => ['value' => 'http://www.wikidata.org/entity/Q3'], 'valueLabel' => ['value' => '2020']],
+        ]]]);
+        self::assertSame(['1984', '2020'], [Wikidata::parseDetails($digits)['original_title'], Wikidata::parseDetails($digits)['genre']]);
     }
 
     public function testDetailsAreMergedAndFilledIn(): void

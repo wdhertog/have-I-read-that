@@ -225,7 +225,8 @@ final class Wikidata
         $pick = static function (string $prop, ?int $only = null) use ($byProp): array {
             foreach ($only !== null ? [$only] : [0, 1] as $direct) {
                 if (!empty($byProp[$prop][$direct])) {
-                    return array_keys($byProp[$prop][$direct]);
+                    // Keys like "1984" became ints in the array; values are always text.
+                    return array_map('strval', array_keys($byProp[$prop][$direct]));
                 }
             }
             return [];
