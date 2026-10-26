@@ -24,6 +24,20 @@ final class Database
         ]);
     }
 
+    /** Cheap check on every request: only migrate when there are new migration files. */
+    public static function migrateIfNeeded(PDO $db, string $dir): void
+    {
+        $files = glob(rtrim($dir, '/') . '/*.sql') ?: [];
+        try {
+            $done = (int) $db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn();
+        } catch (\PDOException) {
+            $done = 0; // table doesn't exist yet
+        }
+        if ($done < count($files)) {
+            self::migrate($db, $dir);
+        }
+    }
+
     /**
      * Apply migrations/*.sql that haven't run yet. Returns the names applied.
      *

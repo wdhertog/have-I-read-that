@@ -86,7 +86,12 @@ final class Api
             return Response::json(['error' => $e->getMessage()], 422);
         }
         $dnf = !empty($input['dnf']);
-        $this->app->books->finish($id, Books::validDate($input['date'] ?? null), $rating, (string) ($input['review'] ?? ''), $dnf);
+        try {
+            $review = Books::text($input['review'] ?? null, Books::MAX_REVIEW);
+        } catch (InvalidArgumentException $e) {
+            return Response::json(['error' => $e->getMessage()], 422);
+        }
+        $this->app->books->finish($id, Books::validDate($input['date'] ?? null), $rating, $review, $dnf);
         $toot = !$dnf && !empty($input['toot']) ? $this->postToot($id, 'finished') : null;
         return Response::json(['book' => $this->detail($this->app->books->find($id)), 'toot' => $toot]);
     }
@@ -98,7 +103,12 @@ final class Api
         }
         $input = $request->json();
         $kind = ($input['kind'] ?? '') === 'started' ? 'started' : 'finished';
-        $toot = $this->postToot($id, $kind, (string) ($input['text'] ?? ''));
+        try {
+            $text = Books::text($input['text'] ?? null, 5000);
+        } catch (InvalidArgumentException $e) {
+            return Response::json(['error' => $e->getMessage()], 422);
+        }
+        $toot = $this->postToot($id, $kind, $text);
         return Response::json(['toot' => $toot], $toot['posted'] ? 200 : 502);
     }
 

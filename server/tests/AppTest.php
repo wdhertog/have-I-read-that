@@ -20,22 +20,28 @@ final class AppTest extends TestCase
     private App $app;
     private PDO $db;
 
-    protected function setUp(): void
+    /** @return array<string, string> */
+    private function configValues(): array
     {
-        $config = new Config([
+        return [
             'APP_PASSWORD' => 'geheim',
             'DB_HOST' => (string) getenv('TEST_DB_HOST'),
             'DB_NAME' => (string) getenv('TEST_DB_NAME'),
             'DB_USER' => (string) getenv('TEST_DB_USER'),
             'DB_PASSWORD' => (string) getenv('TEST_DB_PASSWORD'),
-        ]);
+        ];
+    }
+
+    protected function setUp(): void
+    {
+        $config = new Config($this->configValues());
         try {
             $this->db = Database::connect($config);
         } catch (\PDOException $e) {
             self::markTestSkipped('No test database: ' . $e->getMessage());
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['posts', '`reads`', 'books', 'api_tokens', 'schema_migrations'] as $table) {
+        foreach (['posts', '`reads`', 'books', 'api_tokens', 'login_attempts', 'schema_migrations'] as $table) {
             $this->db->exec("DROP TABLE IF EXISTS {$table}");
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -74,6 +80,88 @@ final class AppTest extends TestCase
         self::assertStringContainsString('/login', $this->web('GET', '/books')->headers['Location']);
         $this->web('POST', '/login', ['password' => 'fout']);
         self::assertFalse($this->app->auth->loggedIn());
+    }
+
+    public function testLoginIsRateLimited(): void
+    {
+        for ($i = 0; $i < 10; $i++) {
+            $this->app->handle(new Request('POST', '/login', [], ['password' => 'fout', '_csrf' => $this->app->auth->csrfToken()], ip: '203.0.113.9'));
+        }
+        // Even the right password is refused while locked out, but only for that address.
+        $this->app->handle(new Request('POST', '/login', [], ['password' => 'geheim', '_csrf' => $this->app->auth->csrfToken()], ip: '203.0.113.9'));
+        self::assertFalse($this->app->auth->loggedIn());
+        $this->app->handle(new Request('POST', '/login', [], ['password' => 'geheim', '_csrf' => $this->app->auth->csrfToken()], ip: '198.51.100.7'));
+        self::assertTrue($this->app->auth->loggedIn());
+    }
+
+    public function testLoginRedirectStaysOnSite(): void
+    {
+        foreach (['/\\evil.example', '//evil.example', 'https://evil.example', '/books?x=//evil'] as $next) {
+            $response = $this->app->handle(new Request('POST', '/login', ['next' => $next],
+                ['password' => 'geheim', '_csrf' => $this->app->auth->csrfToken()]));
+            self::assertSame('/books', $response->headers['Location'], $next);
+        }
+        $response = $this->app->handle(new Request('POST', '/login', ['next' => '/books/12'],
+            ['password' => 'geheim', '_csrf' => $this->app->auth->csrfToken()]));
+        self::assertSame('/books/12', $response->headers['Location']);
+    }
+
+    public function testIpv6AttemptsCountPerSlash64(): void
+    {
+        for ($i = 0; $i < 10; $i++) {
+            $this->app->handle(new Request('POST', '/login', [], ['password' => 'fout', '_csrf' => $this->app->auth->csrfToken()], ip: "2001:db8:1:2::{$i}"));
+        }
+        $this->app->handle(new Request('POST', '/login', [], ['password' => 'geheim', '_csrf' => $this->app->auth->csrfToken()], ip: '2001:db8:1:2::ff'));
+        self::assertFalse($this->app->auth->loggedIn());
+    }
+
+    public function testChangingThePasswordEndsSessions(): void
+    {
+        $this->login();
+        self::assertTrue($this->app->auth->loggedIn());
+        $other = new App(new Config(['APP_PASSWORD' => 'nieuw'] + $this->configValues()), $this->db);
+        self::assertFalse($other->auth->loggedIn());
+    }
+
+    public function testBcryptHashFromOtherTools(): void
+    {
+        $hash = '$2b$' . substr(password_hash('geheim', PASSWORD_BCRYPT), 4);
+        $app = new App(new Config(['APP_PASSWORD' => $hash] + $this->configValues()), $this->db);
+        self::assertTrue($app->auth->checkPassword('geheim'));
+        self::assertFalse($app->auth->checkPassword($hash));
+    }
+
+    public function testOddInputNeverGivesA500(): void
+    {
+        $response = $this->app->handle(new Request('POST', '/login', [], ['_csrf' => ['x'], 'password' => 'geheim']));
+        self::assertSame(400, $response->status);
+        $this->login();
+        $response = $this->web('POST', '/books/add', ['title' => "kapot \xFF", 'status' => 'read']);
+        self::assertSame(422, $response->status);
+        self::assertSame(200, $this->app->handle(new Request('HEAD', '/'))->status);
+    }
+
+    public function testImportClipsLongFieldsAndNormalizesFormats(): void
+    {
+        $this->login();
+        $csv = "Title,Authors,ISBN/UID,Format,Read Status\n" . str_repeat('t', 600) . ",A,,Digital,read\nB,B,,Kleitablet,read\n";
+        $file = tempnam(sys_get_temp_dir(), 'sg');
+        file_put_contents($file, $csv);
+        $this->web('POST', '/import', [], ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK]]);
+        unlink($file);
+        $rows = $this->db->query('SELECT CHAR_LENGTH(title) AS len, format FROM books ORDER BY id')->fetchAll();
+        self::assertSame([['len' => 500, 'format' => 'ebook'], ['len' => 1, 'format' => null]], $rows);
+    }
+
+    public function testSecurityHeaders(): void
+    {
+        $public = $this->app->handle(new Request('GET', '/'));
+        self::assertSame('DENY', $public->headers['X-Frame-Options']);
+        self::assertStringContainsString("frame-ancestors 'none'", $public->headers['Content-Security-Policy']);
+        self::assertArrayNotHasKey('Cache-Control', $public->headers);
+
+        $this->login();
+        self::assertSame('no-store', $this->web('GET', '/settings')->headers['Cache-Control']);
     }
 
     public function testPostWithoutCsrfIsRejected(): void
@@ -162,5 +250,17 @@ final class AppTest extends TestCase
 
         [$status] = $this->api('GET', '/api/books/999999', null, $token);
         self::assertSame(404, $status);
+
+        // Odd or oversized input is a 422, never a 500.
+        foreach ([['title' => ['nested']], ['title' => str_repeat('x', 501)], ['title' => 'X', 'pages' => '99999999999'],
+                  ['title' => 'X', 'review' => str_repeat('x', 10001)]] as $input) {
+            [$status] = $this->api('POST', '/api/books', $input, $token);
+            self::assertSame(422, $status, json_encode($input));
+        }
+        [$status, $body] = $this->api('POST', '/api/books', ['title' => 'X', 'format' => 'kleitablet', 'rating' => ['a']], $token);
+        self::assertSame(201, $status);
+        self::assertNull($body['book']['format']);
+        [$status] = $this->api('POST', "/api/books/{$id}/finish", ['review' => ['a' => 1], 'date' => ['x']], $token);
+        self::assertSame(200, $status);
     }
 }

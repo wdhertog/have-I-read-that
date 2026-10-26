@@ -66,6 +66,12 @@ final class StoryGraph
         return $reads;
     }
 
+    /** Shorten to what the database column holds, so one odd row can't abort the import. */
+    private static function clip(string $value, int $max): string
+    {
+        return mb_substr($value, 0, $max);
+    }
+
     public static function cleanIsbn(?string $value): ?string
     {
         $isbn = strtoupper((string) preg_replace('/[^0-9Xx]/', '', (string) $value));
@@ -87,6 +93,9 @@ final class StoryGraph
      */
     public static function parse(string $csv): array
     {
+        if (!mb_check_encoding($csv, 'UTF-8')) {
+            throw new \InvalidArgumentException('Het bestand is geen UTF-8.');
+        }
         $csv = preg_replace('/^\xEF\xBB\xBF/', '', $csv);
         $handle = fopen('php://memory', 'r+');
         fwrite($handle, (string) $csv);
@@ -114,15 +123,15 @@ final class StoryGraph
                 $reads = [[null, $lastRead]];
             }
             $books[] = [
-                'title' => $row['Title'],
-                'author' => $row['Authors'] ?? '',
+                'title' => self::clip($row['Title'], 500),
+                'author' => self::clip($row['Authors'] ?? '', 500),
                 'isbn' => self::cleanIsbn($row['ISBN/UID'] ?? ''),
-                'format' => ($row['Format'] ?? '') ?: null,
+                'format' => Books::normalizeFormat($row['Format'] ?? ''),
                 'status' => $status,
                 'rating' => self::parseRating($row['Star Rating'] ?? ''),
-                'review' => ($row['Review'] ?? '') ?: null,
-                'tags' => ($row['Tags'] ?? '') ?: null,
-                'moods' => ($row['Moods'] ?? '') ?: null,
+                'review' => self::clip($row['Review'] ?? '', Books::MAX_REVIEW) ?: null,
+                'tags' => self::clip($row['Tags'] ?? '', 1000) ?: null,
+                'moods' => self::clip($row['Moods'] ?? '', 1000) ?: null,
                 'owned' => strtolower($row['Owned?'] ?? '') === 'yes' ? 1 : 0,
                 'date_added' => self::parseDate($row['Date Added'] ?? ''),
                 'reads' => $reads,

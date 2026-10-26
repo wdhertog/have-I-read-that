@@ -19,6 +19,8 @@ final class Books
         'dnf' => 'Niet uitgelezen',
     ];
     public const FORMATS = ['paperback', 'hardcover', 'ebook', 'audio'];
+    public const MAX_REVIEW = 10000;
+    public const MAX_PAGES = 100000;
 
     public function __construct(private PDO $db)
     {
@@ -37,20 +39,20 @@ final class Books
      */
     public static function validate(array $input): array
     {
-        $str = static function (string $key) use ($input): ?string {
-            $value = trim((string) ($input[$key] ?? ''));
+        $str = static function (string $key, int $max = 500) use ($input): ?string {
+            $value = self::text($input[$key] ?? null, $max);
             return $value === '' ? null : $value;
         };
         $data = [
             'title' => $str('title'),
             'author' => $str('author') ?? '',
-            'isbn' => $str('isbn'),
-            'format' => $str('format'),
-            'status' => $str('status') ?? 'to-read',
-            'review' => $str('review'),
-            'tags' => $str('tags'),
-            'pages' => $str('pages'),
-            'rating' => $str('rating'),
+            'isbn' => $str('isbn', 50),
+            'format' => $str('format', 50),
+            'status' => $str('status', 20) ?? 'to-read',
+            'review' => $str('review', self::MAX_REVIEW),
+            'tags' => $str('tags', 1000),
+            'pages' => $str('pages', 20),
+            'rating' => $str('rating', 20),
             'owned' => in_array($input['owned'] ?? null, ['on', '1', 1, true], true) ? 1 : 0,
         ];
         if ($data['title'] === null) {
@@ -59,11 +61,12 @@ final class Books
         if (!isset(self::STATUSES[$data['status']])) {
             $data['status'] = 'to-read';
         }
+        $data['format'] = self::normalizeFormat($data['format']);
         if ($data['isbn'] !== null) {
             $data['isbn'] = StoryGraph::cleanIsbn($data['isbn']);
         }
         if ($data['pages'] !== null) {
-            if (!ctype_digit($data['pages'])) {
+            if (!ctype_digit($data['pages']) || (int) $data['pages'] > self::MAX_PAGES) {
                 throw new InvalidArgumentException("Pagina's moet een getal zijn.");
             }
             $data['pages'] = (int) $data['pages'];
@@ -72,9 +75,33 @@ final class Books
         return $data;
     }
 
+    /** Map a format (e.g. StoryGraph's "digital") onto FORMATS, or null. */
+    public static function normalizeFormat(?string $format): ?string
+    {
+        $format = strtolower(trim((string) $format));
+        $format = ['digital' => 'ebook', 'e-book' => 'ebook', 'audiobook' => 'audio'][$format] ?? $format;
+        return in_array($format, self::FORMATS, true) ? $format : null;
+    }
+
+    /**
+     * A trimmed string from form or JSON input. Arrays/objects count as empty, so odd
+     * input can't cause warnings or database errors.
+     */
+    public static function text(mixed $value, int $max): string
+    {
+        $value = is_string($value) || is_int($value) || is_float($value) ? trim((string) $value) : '';
+        if (!mb_check_encoding($value, 'UTF-8')) {
+            throw new InvalidArgumentException('Tekst bevat ongeldige tekens.');
+        }
+        if (mb_strlen($value) > $max) {
+            throw new InvalidArgumentException("Tekst is te lang (maximaal {$max} tekens).");
+        }
+        return $value;
+    }
+
     public static function validateRating(mixed $rating): ?float
     {
-        $rating = str_replace(',', '.', trim((string) $rating));
+        $rating = str_replace(',', '.', self::text($rating, 20));
         if ($rating === '') {
             return null;
         }
@@ -86,7 +113,7 @@ final class Books
 
     public static function validDate(mixed $value): ?string
     {
-        $value = trim((string) $value);
+        $value = is_string($value) ? trim($value) : '';
         $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
         return $date && $date->format('Y-m-d') === $value ? $value : null;
     }

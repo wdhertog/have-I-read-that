@@ -17,7 +17,7 @@
     <?php if ($book['review']): ?><blockquote><?= $v->e($book['review']) ?></blockquote><?php endif ?>
     <div class="actions">
       <a class="button secondary" href="<?= $v->url("/books/{$book['id']}/edit") ?>">Bewerken</a>
-      <form method="post" action="<?= $v->url("/books/{$book['id']}/delete") ?>" class="inline" onsubmit="return confirm('Dit boek verwijderen?')">
+      <form method="post" action="<?= $v->url("/books/{$book['id']}/delete") ?>" class="inline" data-confirm="Dit boek verwijderen?">
         <?= $v->csrf() ?><button class="danger">Verwijderen</button>
       </form>
     </div>

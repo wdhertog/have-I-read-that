@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\App;
+use App\Auth;
 use App\Books;
 use App\MastodonException;
 use App\OpenLibrary;
@@ -34,15 +35,21 @@ final class Web
 
     public function login(Request $request): Response
     {
-        if ($this->app->auth->checkPassword((string) $request->input('password', ''))) {
-            $this->app->auth->login();
-            $next = $request->query('next');
-            $safe = str_starts_with($next, '/') && !str_starts_with($next, '//');
-            return Response::redirect($this->app->url($safe ? $next : '/books'));
+        $auth = $this->app->auth;
+        $next = Auth::safeRedirectPath($request->query('next'));
+        if (!$auth->registerAttempt($request->ip)) {
+            $this->app->flash('error', 'Te veel mislukte pogingen. Probeer het over een kwartier opnieuw.');
+            return Response::redirect($this->app->url('/login', ['next' => $next]));
+        }
+        $password = $request->input('password', '');
+        if (is_string($password) && $auth->checkPassword($password)) {
+            $auth->clearAttempts($request->ip);
+            $auth->login();
+            return Response::redirect($this->app->url($next ?? '/books'));
         }
         sleep(1);
         $this->app->flash('error', 'Onjuist wachtwoord.');
-        return Response::redirect($this->app->url('/login', ['next' => $request->query('next')]));
+        return Response::redirect($this->app->url('/login', ['next' => $next]));
     }
 
     public function logout(Request $request): Response
@@ -175,9 +182,14 @@ final class Web
             $this->app->flash('error', $e->getMessage());
             return $this->toBook($id);
         }
+        try {
+            $review = Books::text($request->input('review'), Books::MAX_REVIEW);
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+            return $this->toBook($id);
+        }
         $dnf = $request->input('dnf') === 'on';
-        $this->app->books->finish($id, Books::validDate($request->input('finished')), $rating,
-            (string) $request->input('review', ''), $dnf);
+        $this->app->books->finish($id, Books::validDate($request->input('finished')), $rating, $review, $dnf);
         $this->app->flash('ok', $dnf ? 'Gemarkeerd als niet uitgelezen.' : 'Uitgelezen! 🎉');
         if (!$dnf && $this->wantsToot($request)) {
             $this->postToot($id, 'finished');
@@ -188,7 +200,11 @@ final class Web
     public function toot(Request $request, int $id): Response
     {
         $kind = $request->input('kind') === 'started' ? 'started' : 'finished';
-        $this->postToot($id, $kind, (string) $request->input('text', ''));
+        try {
+            $this->postToot($id, $kind, Books::text($request->input('text'), 5000));
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
         return $this->toBook($id);
     }
 
@@ -240,9 +256,6 @@ final class Web
         $result = null;
         try {
             $csv = (string) file_get_contents($file['tmp_name']);
-            if (!mb_check_encoding($csv, 'UTF-8')) {
-                throw new InvalidArgumentException('Het bestand is geen UTF-8.');
-            }
             $result = $this->app->books->import(StoryGraph::parse($csv));
             $this->app->flash('ok', sprintf('%d boeken geïmporteerd, %d overgeslagen (bestonden al).',
                 count($result['imported']), count($result['skipped'])));
@@ -287,7 +300,8 @@ final class Web
 
     public function createToken(Request $request): Response
     {
-        $token = $this->app->auth->createToken((string) $request->input('name', 'Android'));
+        $name = $request->input('name');
+        $token = $this->app->auth->createToken(is_string($name) ? $name : '');
         $this->app->flash('ok', 'Token aangemaakt. Kopieer het nu: het wordt maar één keer getoond.');
         return $this->renderSettings($request, null, $token);
     }

@@ -16,6 +16,7 @@ COPY migrations ./migrations
 COPY public ./public
 COPY src ./src
 COPY templates ./templates
+RUN mkdir -p var/sessions && chown -R www-data:www-data var
 COPY docker/entrypoint.sh /usr/local/bin/app-entrypoint
 RUN chmod +x /usr/local/bin/app-entrypoint
 ENTRYPOINT ["app-entrypoint"]

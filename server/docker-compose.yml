@@ -9,6 +9,9 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: "3306"
+      # Requests arrive through Docker's network from your reverse proxy; trust its
+      # X-Forwarded-For so the login limit sees real visitor addresses.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
     depends_on:
       - db
 
