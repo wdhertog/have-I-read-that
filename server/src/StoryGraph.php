@@ -25,7 +25,7 @@ final class StoryGraph
     private const MAPPED = [
         'Title', 'Authors', 'Contributors', 'ISBN/UID', 'Format', 'Read Status', 'Date Added', 'Last Date Read',
         'Dates Read', 'Read Count', 'Moods', 'Star Rating', 'Review', 'Content Warnings',
-        'Content Warning Description', 'Tags', 'Owned?',
+        'Content Warning Description', 'Tags', 'Owned?', 'Series', 'Series Number',
     ];
 
     /** Page counts, should an export carry them. */
@@ -167,13 +167,19 @@ final class StoryGraph
                 'status' => $status,
                 'rating' => self::parseRating($row['Star Rating'] ?? ''),
                 'review' => self::clip($row['Review'] ?? '', Books::MAX_REVIEW) ?: null,
-                'tags' => self::clip($row['Tags'] ?? '', 1000) ?: null,
+                'tags' => Books::normalizeTags(self::clip($row['Tags'] ?? '', 1000)),
                 'moods' => self::clip($row['Moods'] ?? '', 1000) ?: null,
                 'contributors' => self::clip($row['Contributors'] ?? '', 1000) ?: null,
                 'content_warnings' => self::clip($row['Content Warnings'] ?? '', 5000) ?: null,
                 'content_warning_description' => self::clip($row['Content Warning Description'] ?? '', 5000) ?: null,
                 'details' => $details,
                 'pages' => $pages,
+                // StoryGraph's ISBN/UID column, kept as is: also its own id for books without an ISBN.
+                'storygraph_id' => self::clip($row['ISBN/UID'] ?? '', 100) ?: null,
+                // Not in StoryGraph's export, but in this app's own (Export::csv).
+                'series' => self::clip($row['Series'] ?? '', 255) ?: null,
+                'series_number' => is_numeric(str_replace(',', '.', $row['Series Number'] ?? ''))
+                    ? round((float) str_replace(',', '.', $row['Series Number']), 1) : null,
                 'owned' => strtolower($row['Owned?'] ?? '') === 'yes' ? 1 : 0,
                 'date_added' => self::parseDate($row['Date Added'] ?? ''),
                 'reads' => $reads,

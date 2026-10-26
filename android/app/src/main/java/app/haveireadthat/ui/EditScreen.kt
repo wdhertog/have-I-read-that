@@ -58,6 +58,8 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
     var rating by rememberSaveable { mutableFloatStateOf(0f) }
     var review by rememberSaveable { mutableStateOf("") }
     var tags by rememberSaveable { mutableStateOf("") }
+    var series by rememberSaveable { mutableStateOf("") }
+    var seriesNumber by rememberSaveable { mutableStateOf("") }
     var owned by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by rememberSaveable { mutableStateOf(false) }
@@ -75,6 +77,8 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
             rating = book.rating?.toFloat() ?: 0f
             review = book.review.orEmpty()
             tags = book.tags.orEmpty()
+            series = book.series.orEmpty()
+            seriesNumber = book.seriesNumber?.let(::formatNumber).orEmpty()
             owned = book.owned
             loaded = true
         } catch (e: Exception) {
@@ -99,6 +103,8 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
                         review = review.trim().ifEmpty { null },
                         format = format,
                         tags = tags.trim().ifEmpty { null },
+                        series = series.trim().ifEmpty { null },
+                        seriesNumber = seriesNumber.replace(',', '.').toDoubleOrNull(),
                         owned = owned,
                     ),
                 )
@@ -169,7 +175,20 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
             )
             Slider(value = rating, onValueChange = { rating = it }, valueRange = 0f..5f, steps = 19)
             OutlinedTextField(review, { review = it }, label = { Text("Recensie") }, minLines = 3, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(tags, { tags = it }, label = { Text("Tags") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                tags, { tags = it }, label = { Text("Tags / planken") }, singleLine = true,
+                supportingText = { Text("Gescheiden door komma's, bijv. fantasy, bieb") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(series, { series = it }, label = { Text("Serie") }, singleLine = true, modifier = Modifier.weight(3f))
+                OutlinedTextField(
+                    seriesNumber, { seriesNumber = it.filter { c -> c.isDigit() || c == ',' || c == '.' }.take(7) },
+                    label = { Text("Deel") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+            }
             CheckRow("In bezit", owned) { owned = it }
             message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(onClick = ::save, enabled = !busy && title.isNotBlank(), modifier = Modifier.fillMaxWidth()) {

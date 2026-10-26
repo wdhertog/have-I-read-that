@@ -4,6 +4,10 @@
   <?php foreach ($statuses as $key => $label): ?>
     <a href="<?= $v->url('/books', ['status' => $key, 'q' => $q]) ?>" class="pill <?= $status === $key ? 'active' : '' ?>"><?= $label ?> (<?= $counts[$key] ?? 0 ?>)</a>
   <?php endforeach ?>
+  <?php if ($shelf !== ''): ?>
+    <a href="<?= $v->url('/books', ['status' => $status, 'q' => $q]) ?>" class="pill active" title="Plank-filter weghalen">Plank: <?= $v->e($shelf) ?> ×</a>
+    <input type="hidden" name="shelf" value="<?= $v->e($shelf) ?>">
+  <?php endif ?>
   <input type="hidden" name="status" value="<?= $v->e($status) ?>">
   <input type="search" name="q" value="<?= $v->e($q) ?>" placeholder="Zoek titel, auteur, tag…">
 </form>

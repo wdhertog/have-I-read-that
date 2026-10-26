@@ -22,6 +22,8 @@ android/   Kotlin/Jetpack Compose-app die met de API praat
 - Leesdoel per jaar en leesvoortgang (pagina of percentage), eventueel met een toot
 - Export naar CSV (StoryGraph-formaat, weer te importeren) en JSON
 - Waarschuwing als je een boek toevoegt dat er al in staat
+- Notities en citaten per boek (privé, of openbaar op de boekpagina)
+- Planken (je tags; die van StoryGraph komen er vanzelf in) en series met deelnummers
 - Toots met de cover als afbeelding (met alt-tekst), en een jaaroverzicht-toot met een collage van covers
 - Openbare boekpagina's met nette previews als je een link deelt, en een RSS-feed (`/feed.xml`)
 - Statistieken per jaar, boeken zoeken via Open Library, covers via Open Library
@@ -190,7 +192,10 @@ Alle kolommen van de export worden overgenomen:
 
 Kolommen die de app niet kent, worden ook bewaard. Er wordt niets gepost.
 
-Je ziet eerst een voorbeeld; pas na *Bevestigen* verandert er iets. Opnieuw
+Je ziet eerst een voorbeeld; pas na *Bevestigen* verandert er iets. De app bewaart
+StoryGraph's eigen ID per boek, zodat een boek dat je hernoemt (ook zonder ISBN) bij
+een volgende import herkend wordt. Je notities, series en planken worden bij een
+import nooit overschreven. Opnieuw
 importeren is veilig. Boeken die er al zijn (zelfde ISBN, of zelfde titel + auteur)
 worden niet dubbel toegevoegd: alleen lege velden worden aangevuld en ontbrekende
 leesmomenten toegevoegd. Wat je zelf hebt ingevuld of aangepast, en de status,

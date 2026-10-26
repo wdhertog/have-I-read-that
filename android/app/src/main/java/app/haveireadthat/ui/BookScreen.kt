@@ -20,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -46,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.haveireadthat.Book
@@ -53,6 +55,8 @@ import app.haveireadthat.ApiException
 import app.haveireadthat.Outcome
 import app.haveireadthat.Repository
 import app.haveireadthat.FinishRequest
+import app.haveireadthat.NewNote
+import app.haveireadthat.Note
 import app.haveireadthat.ProgressRequest
 import app.haveireadthat.Read
 import app.haveireadthat.ReadDates
@@ -80,6 +84,7 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var readEdit by remember { mutableStateOf<ReadEdit?>(null) }
+    var addingNote by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -190,6 +195,13 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                     }
                 }
             }
+            Notes(
+                current,
+                onAdd = { addingNote = true },
+                onDelete = { note ->
+                    act("Verwijderd.") { Outcome.Sent(settings.client().deleteNote(note.id)) }
+                },
+            )
             if (current.id > 0) {
                 Reads(current, onEdit = { readEdit = ReadEdit.Existing(it) }, onAdd = { readEdit = ReadEdit.New })
             }
@@ -216,6 +228,16 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                 }) { Text("Verwijderen") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuleren") } },
+        )
+    }
+
+    if (addingNote) {
+        NoteDialog(
+            onDismiss = { addingNote = false },
+            onSave = { note ->
+                addingNote = false
+                book?.let { current -> act(if (note.kind == "quote") "Citaat bewaard." else "Notitie bewaard.") { repository.addNote(current, note) } }
+            },
         )
     }
 
@@ -250,6 +272,12 @@ private fun Header(book: Book) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(book.title, style = MaterialTheme.typography.headlineSmall)
             if (book.author.isNotBlank()) Text(book.author, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            book.series?.let { series ->
+                Text(
+                    series + (book.seriesNumber?.let { ", deel ${formatNumber(it)}" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Text(STATUSES[book.status] ?: book.status, style = MaterialTheme.typography.labelLarge)
             book.rating?.let {
                 Text("${stars(it)}  ${formatRating(it)}", color = MaterialTheme.colorScheme.primary)
@@ -432,3 +460,68 @@ private fun ReadDialog(read: Read?, onDismiss: () -> Unit, onSave: (ReadDates) -
 }
 
 private fun isDate(value: String): Boolean = runCatching { LocalDate.parse(value) }.isSuccess
+
+@Composable
+private fun Notes(book: Book, onAdd: () -> Unit, onDelete: (Note) -> Unit) {
+    Text("Notities en citaten", style = MaterialTheme.typography.titleMedium)
+    if (book.notes.isEmpty()) {
+        Text("Bewaar hier mooie zinnen of je gedachten tijdens het lezen.", style = MaterialTheme.typography.bodySmall)
+    }
+    book.notes.forEach { note ->
+        Column(Modifier.fillMaxWidth()) {
+            Text(
+                if (note.kind == "quote") "“${note.text}”" else note.text,
+                style = if (note.kind == "quote") MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic)
+                else MaterialTheme.typography.bodyLarge,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    listOfNotNull(
+                        note.page?.let { "p. $it" },
+                        if (note.kind == "quote") "citaat" else "notitie",
+                        if (note.isPublic) "openbaar" else "privé",
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // Notes still waiting to be sent have a negative id and can't be deleted yet.
+                if (note.id > 0) {
+                    TextButton(onClick = { onDelete(note) }) { Text("verwijder") }
+                }
+            }
+        }
+    }
+    OutlinedButton(onClick = onAdd, enabled = book.id > 0) { Text("Notitie of citaat toevoegen") }
+}
+
+@Composable
+private fun NoteDialog(onDismiss: () -> Unit, onSave: (NewNote) -> Unit) {
+    var quote by rememberSaveable { mutableStateOf(false) }
+    var text by rememberSaveable { mutableStateOf("") }
+    var page by rememberSaveable { mutableStateOf("") }
+    var isPublic by rememberSaveable { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (quote) "Citaat" else "Notitie") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !quote, onClick = { quote = false }, label = { Text("Notitie") })
+                    FilterChip(selected = quote, onClick = { quote = true }, label = { Text("Citaat") })
+                }
+                OutlinedTextField(text, { text = it.take(5000) }, label = { Text("Tekst") }, minLines = 3)
+                OutlinedTextField(
+                    page, { page = it.filter(Char::isDigit).take(6) }, label = { Text("Pagina") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                CheckRow("Openbaar (op de openbare boekpagina)", isPublic) { isPublic = it }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = text.isNotBlank(), onClick = {
+                onSave(NewNote(if (quote) "quote" else "note", text.trim(), page.toIntOrNull(), isPublic))
+            }) { Text("Bewaren") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuleren") } },
+    )
+}

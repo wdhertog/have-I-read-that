@@ -103,11 +103,13 @@ final class Web
     {
         $status = $request->query('status');
         $q = $request->query('q');
+        $shelf = $request->query('shelf');
         return $this->app->render('books', [
-            'books' => $this->app->books->list($status ?: null, $q),
+            'books' => $this->app->books->list($status ?: null, $q, null, $shelf ?: null),
             'counts' => $this->app->books->counts(),
             'status' => $status,
             'q' => $q,
+            'shelf' => $shelf,
         ]);
     }
 
@@ -167,9 +169,55 @@ final class Web
             'book' => $book,
             'reads' => $this->app->books->reads($id),
             'posts' => $this->app->books->posts($id),
+            'notes' => $this->app->books->notes($id),
             'tootKind' => $book['status'] === 'reading' ? 'started' : 'finished',
             'tootText' => $this->app->tooter->compose($book, $book['status'] === 'reading' ? 'started' : 'finished'),
         ]);
+    }
+
+    public function addNote(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->app->render('404', [], 404);
+        }
+        try {
+            $this->app->books->addNote($id, $request->post);
+            $this->app->flash('ok', $request->input('kind') === 'quote' ? 'Citaat bewaard.' : 'Notitie bewaard.');
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
+        return Response::redirect($this->app->url("/books/{$id}") . '#notities');
+    }
+
+    public function deleteNote(Request $request, int $id): Response
+    {
+        $bookId = $this->app->books->deleteNote($id);
+        return $bookId ? Response::redirect($this->app->url("/books/{$bookId}") . '#notities') : Response::redirect($this->app->url('/books'));
+    }
+
+    /** Shelves (your tags) and series on one page. */
+    public function collections(Request $request): Response
+    {
+        $series = $request->query('series');
+        return $this->app->render('collections', [
+            'shelves' => $this->app->books->shelves(),
+            'series' => $this->app->books->seriesList(),
+            'current' => $series,
+            'seriesBooks' => $series !== '' ? $this->app->books->seriesBooks($series) : [],
+        ]);
+    }
+
+    public function renameShelf(Request $request): Response
+    {
+        try {
+            $from = Books::text($request->input('from'), 200);
+            $to = Books::text($request->input('to'), 200);
+            $n = $this->app->books->renameShelf($from, $to);
+            $this->app->flash('ok', $to === '' ? "Plank “{$from}” verwijderd bij {$n} boeken." : "Plank hernoemd bij {$n} boeken.");
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
+        return Response::redirect($this->app->url('/collections'));
     }
 
     public function progress(Request $request, int $id): Response

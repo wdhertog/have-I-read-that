@@ -46,6 +46,7 @@ final class Shelf
             . ($showReviews && $book['review'] ? ' ' . $book['review'] : ''));
         return $this->app->render('public_book', [
             'book' => $book,
+            'quotes' => $this->app->books->notes($id, publicOnly: true),
             'finished' => $finished,
             'showReviews' => $showReviews,
             'title' => $book['title'],
