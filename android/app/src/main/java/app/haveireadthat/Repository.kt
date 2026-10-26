@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.glance.appwidget.updateAll
 import app.haveireadthat.widget.ReadingWidget
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -59,15 +61,31 @@ class Repository(context: Context) {
     // --- reading -------------------------------------------------------------
 
     suspend fun library(): Loaded<List<Book>> = try {
-        val books = client().books(null, "")
-        val goal = runCatching { client().me().goal }.getOrNull()
-        update { it.copy(books = books, goal = goal ?: it.goal, updatedAt = LocalDate.now().toString()) }
-        sync()
+        sync() // first, so the list below already has what was waiting
+        refresh()
         Loaded(state().books, offline = false)
     } catch (e: ApiException) {
         throw e
     } catch (e: IOException) {
         Loaded(state().books, offline = true)
+    }
+
+    /**
+     * Fetch the list and goal without sending anything (for the widget, which may be
+     * cut off at any moment). Books made offline that aren't sent yet stay in the list.
+     */
+    suspend fun refresh() {
+        val books = client().books(null, "")
+        val goal = runCatching { client().me().goal }.getOrNull()
+        update { s ->
+            s.copy(books = s.books.filter { it.id < 0 } + books, goal = goal ?: s.goal, updatedAt = LocalDate.now().toString())
+        }
+    }
+
+    /** After deleting a book on the server: also gone from the phone and the widget. */
+    suspend fun forgetBook(id: Int) {
+        update { s -> s.copy(books = s.books.filterNot { it.id == id }, details = s.details - id) }
+        ReadingWidget().updateAll(app)
     }
 
     suspend fun book(id: Int): Loaded<Book> {
@@ -180,6 +198,12 @@ class Repository(context: Context) {
         local: (Book) -> Book,
     ): Outcome {
         if (book.id < 0) throw ApiException("Dit boek is nog niet naar de server gestuurd; probeer het straks opnieuw.")
+        // Older changes still waiting go first; if they can't, this one waits behind them.
+        if (state().queue.isNotEmpty() && !sync()) {
+            val changed = local(book)
+            enqueue(PendingAction(UUID.randomUUID().toString(), type, book.id, book.title, body)) { it.withBook(changed) }
+            return Outcome.Queued(changed)
+        }
         return try {
             val response = online()
             update { it.withBook(response.book) }
@@ -197,11 +221,23 @@ class Repository(context: Context) {
     // --- syncing ----------------------------------------------------------------
 
     /**
-     * Send queued changes in order. Stops at the first connection problem (true is
-     * returned when everything went). A change the server refuses is dropped and
-     * remembered in failures, so one bad change can't block the rest.
+     * Send queued changes in order. Stops at the first connection problem or when the
+     * server is down or the login is wrong, keeping the rest for later (true is returned
+     * when everything went). A change the server refuses is dropped and remembered in
+     * failures, so one bad change can't block the rest. Only one sync runs at a time,
+     * and once a change is on its way it is finished even if the caller gives up, so
+     * nothing is sent twice.
      */
     suspend fun sync(): Boolean {
+        if (!syncLock.tryLock()) return false
+        try {
+            return withContext(NonCancellable) { sendQueue() }
+        } finally {
+            syncLock.unlock()
+        }
+    }
+
+    private suspend fun sendQueue(): Boolean {
         while (true) {
             val next = state().queue.firstOrNull() ?: break
             try {
@@ -223,13 +259,17 @@ class Repository(context: Context) {
                     }
                     response?.let { updated.withBook(it.book) } ?: updated
                 }
+            } catch (e: BadResponseException) {
+                // It was done; only the answer was garbled.
+                update { s -> s.copy(queue = s.queue.filterNot { it.id == next.id }) }
             } catch (e: ApiException) {
-                update { s ->
-                    s.copy(
-                        queue = s.queue.filterNot { it.id == next.id },
-                        failures = (s.failures + "“${next.title}”: ${e.message}").takeLast(20),
-                    )
+                if (e.retryable) {
+                    SyncWorker.schedule(app)
+                    return false
                 }
+                drop(next, e.message.orEmpty())
+            } catch (e: SerializationException) {
+                drop(next, "kon niet worden gelezen") // a queued change from an older app version
             } catch (e: IOException) {
                 SyncWorker.schedule(app)
                 return false
@@ -237,6 +277,13 @@ class Repository(context: Context) {
         }
         ReadingWidget().updateAll(app)
         return true
+    }
+
+    private suspend fun drop(action: PendingAction, reason: String) = update { s ->
+        s.copy(
+            queue = s.queue.filterNot { it.id == action.id },
+            failures = (s.failures + "“${action.title}”: $reason").takeLast(20),
+        )
     }
 
     suspend fun clearFailures() = update { it.copy(failures = emptyList()) }
@@ -261,7 +308,11 @@ class Repository(context: Context) {
 
     private suspend fun read(): LocalState = withContext(Dispatchers.IO) {
         if (!file.exists()) LocalState()
-        else runCatching { ApiClient.json.decodeFromString<LocalState>(file.readText()) }.getOrDefault(LocalState())
+        else runCatching { ApiClient.json.decodeFromString<LocalState>(file.readText()) }.getOrElse {
+            // Keep an unreadable file aside rather than overwriting the changes in it.
+            file.renameTo(File(file.parentFile, file.name + ".bad"))
+            LocalState()
+        }
     }
 
     private fun write(state: LocalState) {
@@ -274,9 +325,19 @@ class Repository(context: Context) {
         /** One lock for all instances: the app, the sync worker and the widget share the file. */
         private val lock = Mutex()
 
-        /** Forget the library on the phone (when logging out). */
-        fun forget(context: Context) {
-            File(context.applicationContext.filesDir, "library.json").delete()
+        /** Held while the queue is being sent, so two syncs can't send the same change. */
+        private val syncLock = Mutex()
+
+        /** Forget the library and unsent changes on the phone (when logging out). */
+        suspend fun forget(context: Context) {
+            lock.withLock {
+                withContext(Dispatchers.IO) {
+                    listOf("library.json", "library.json.tmp", "library.json.bad").forEach {
+                        File(context.applicationContext.filesDir, it).delete()
+                    }
+                }
+            }
+            ReadingWidget().updateAll(context.applicationContext)
         }
     }
 }

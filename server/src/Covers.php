@@ -108,7 +108,7 @@ final class Covers
     {
         $info = @getimagesizefromstring($bytes);
         if (!$info || !in_array($info['mime'], ['image/jpeg', 'image/png', 'image/webp'], true)
-            || $info[0] < 10 || $info[1] < 10 || $info[0] * $info[1] > 40_000_000) {
+            || $info[0] < 10 || $info[1] < 10 || $info[0] * $info[1] > 16_000_000) {
             return null;
         }
         $image = @imagecreatefromstring($bytes);

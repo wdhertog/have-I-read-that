@@ -240,6 +240,7 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                     scope.launch {
                         try {
                             settings.client().delete(id)
+                            repository.forgetBook(id)
                             onBack()
                         } catch (e: Exception) {
                             snackbar.showSnackbar("Verwijderen mislukt: ${e.message}")

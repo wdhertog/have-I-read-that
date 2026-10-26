@@ -36,8 +36,9 @@ class ReadingWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val repository = Repository(context)
         if (Settings(context).configured) {
-            // Refresh when the network is quick; otherwise show what the phone has.
-            withTimeoutOrNull(8_000) { runCatching { repository.library() } }
+            // Refresh when the network is quick; otherwise show what the phone has. Only
+            // reads: sending queued changes is for the app and the sync worker.
+            withTimeoutOrNull(8_000) { runCatching { repository.refresh() } }
         }
         val state = repository.state()
         val reading = state.books.filter { it.status == "reading" }.take(3)

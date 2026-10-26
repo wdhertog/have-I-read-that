@@ -64,6 +64,7 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
     var query by rememberSaveable { mutableStateOf("") }
     var books by remember { mutableStateOf<List<Book>?>(null) }
     var state by remember { mutableStateOf(LocalState()) }
+    var confirmLogout by remember { mutableStateOf(false) }
     var offline by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
@@ -100,6 +101,24 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
         }.sortedWith(compareByDescending<Book> { it.status == "reading" })
     }
 
+    if (confirmLogout) {
+        val waiting = state.queue.size
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            title = { Text("Uitloggen?") },
+            text = {
+                Text(
+                    "Je bibliotheek op deze telefoon wordt gewist." +
+                        if (waiting > 0) " Let op: ${if (waiting == 1) "1 wijziging is" else "$waiting wijzigingen zijn"} nog niet verstuurd en ${if (waiting == 1) "gaat" else "gaan"} verloren." else "",
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { confirmLogout = false; onLogout() }) { Text("Uitloggen") }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmLogout = false }) { Text("Annuleren") } },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -108,7 +127,7 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
                     IconButton(onClick = onLoans) {
                         Icon(Icons.Default.Person, contentDescription = "Uitgeleend")
                     }
-                    IconButton(onClick = onLogout) {
+                    IconButton(onClick = { confirmLogout = true }) {
                         Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Uitloggen")
                     }
                 },

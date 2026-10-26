@@ -119,7 +119,8 @@ final class Loans
             'lent_on' => $loan['lent_on'],
             'returned_on' => $loan['returned_on'],
             'note' => $loan['note'],
-            'days' => (int) ((strtotime($loan['returned_on'] ?? date('Y-m-d')) - strtotime($loan['lent_on'])) / 86400),
+            // Calendar days: dividing seconds by 86400 is a day short across summer time.
+            'days' => (new \DateTimeImmutable((string) $loan['lent_on']))->diff(new \DateTimeImmutable((string) ($loan['returned_on'] ?? date('Y-m-d'))))->days,
         ];
     }
 }

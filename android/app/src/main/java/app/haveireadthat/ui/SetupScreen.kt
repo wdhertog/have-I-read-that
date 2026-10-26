@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -33,7 +34,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SetupScreen(settings: Settings, onDone: () -> Unit) {
     var server by rememberSaveable { mutableStateOf(settings.serverUrl) }
-    var token by rememberSaveable { mutableStateOf("") }
+    var token by remember { mutableStateOf("") } // not saveable: the token stays out of saved state
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var busy by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()

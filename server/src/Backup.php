@@ -27,7 +27,10 @@ final class Backup
         foreach (self::TABLES as $table) {
             $create = $this->db->query("SHOW CREATE TABLE `{$table}`")->fetch(PDO::FETCH_NUM)[1];
             fwrite($out, "DROP TABLE IF EXISTS `{$table}`;\n{$create};\n");
-            $rows = $this->db->query("SELECT * FROM `{$table}`", PDO::FETCH_ASSOC);
+            // The second factor stays out: a back-up that leaks shouldn't carry it. After
+            // restoring, two-step verification is off until you turn it on again.
+            $rows = $this->db->query("SELECT * FROM `{$table}`"
+                . ($table === 'settings' ? " WHERE name NOT IN ('totp_secret', 'totp_last_step', 'recovery_codes')" : ''), PDO::FETCH_ASSOC);
             foreach ($rows as $row) {
                 $columns = implode(', ', array_map(static fn ($c) => "`{$c}`", array_keys($row)));
                 $values = implode(', ', array_map(fn ($v) => $v === null ? 'NULL' : $this->db->quote((string) $v), $row));

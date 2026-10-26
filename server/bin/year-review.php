@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+// Only from the command line: never as a web page, should this folder be reachable.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit(1);
+}
+
 // Post the year-in-review toot, e.g. from cron on 31 December:
 //   0 20 31 12 * php /pad/naar/bin/year-review.php
 // Options: a year (default: this year), --dry-run (print instead of posting),
@@ -9,10 +15,8 @@ declare(strict_types=1);
 
 use App\Config;
 use App\Database;
-use App\Mastodon;
 use App\MastodonException;
-use App\Books;
-use App\YearReview;
+use App\App;
 
 require dirname(__DIR__) . '/autoload.php';
 
@@ -25,7 +29,8 @@ $year = (int) ($years[0] ?? date('Y'));
 $config = Config::load(dirname(__DIR__) . '/.env');
 $db = Database::connect($config);
 Database::migrateIfNeeded($db, dirname(__DIR__) . '/migrations');
-$review = new YearReview(new Books($db), Mastodon::fromConfig($config));
+// Set up like the website, so the collage uses the same (cached) covers.
+$review = (new App($config, $db))->yearReview;
 
 echo $review->compose($year), PHP_EOL;
 if ($dryRun) {

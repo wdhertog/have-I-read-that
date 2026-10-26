@@ -25,7 +25,9 @@ final class OpenLibrary
             return null;
         }
         $result = $results[0];
+        // Open Library's year is the work's first publication, not this edition's.
         $result['first_published'] = $result['year'];
+        $result['year'] = null;
         $result['description'] = self::workDescription($result['work'] ?? null);
         unset($result['work']);
         // Keep the scanned ISBN rather than whichever edition Open Library lists first.

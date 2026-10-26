@@ -334,6 +334,9 @@ final class Api
         $out['lent_since'] = $book['lent_since'] ?? null;
         $out['publisher'] = $book['publisher'] ?? null;
         $out['published_year'] = $book['published_year'] ?? null;
+        foreach (array_keys(Books::DETAIL_FIELDS) as $key) {
+            $out[$key] = $book[$key] ?? null;
+        }
         $out['progress_page'] = $book['progress_page'] ?? null;
         $out['progress_percent'] = $book['progress_percent'] ?? null;
         $out['cover_url'] = $this->app->coverUrl($book, absolute: true);

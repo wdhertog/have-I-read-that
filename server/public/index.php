@@ -33,7 +33,16 @@ if (str_ends_with($basePath, '/public') && $uriPath !== $basePath && !str_starts
     $basePath = substr($basePath, 0, -strlen('/public'));
 }
 
-$https = ($_SERVER['HTTPS'] ?? '') === 'on' || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+$https = ($_SERVER['HTTPS'] ?? '') === 'on' || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'
+    || str_starts_with(strtolower($config->get('APP_URL')), 'https://');
+
+// Errors go to a log next to the code, not to an error_log file in public_html, and
+// without function arguments (which could contain the database password).
+$logDir = dirname(__DIR__) . '/var/log';
+if ((is_dir($logDir) || @mkdir($logDir, 0700, true)) && is_writable($logDir)) {
+    ini_set('error_log', $logDir . '/php.log');
+}
+ini_set('zend.exception_ignore_args', '1');
 session_name('hirt_session');
 session_set_cookie_params([
     'lifetime' => 60 * 60 * 24 * 30,
@@ -75,7 +84,10 @@ try {
 
 $trustedProxies = array_values(array_filter(array_map('trim', explode(',', $config->get('TRUSTED_PROXIES')))));
 $request = Request::fromGlobals($basePath, $trustedProxies);
-if (!str_starts_with($request->path, '/api/')) {
+// Visitors of the public pages get no session (and no session file) unless they
+// already have one, e.g. because you're logged in.
+if (!str_starts_with($request->path, '/api/')
+    && (isset($_COOKIE['hirt_session']) || !App::isPublicPath($request->path) || str_starts_with($request->path, '/login'))) {
     session_start();
 }
 

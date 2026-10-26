@@ -29,7 +29,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.work.WorkManager
+import android.app.Application
+import androidx.compose.runtime.rememberCoroutineScope
 import coil.Coil
+import coil.annotation.ExperimentalCoilApi
+import kotlinx.coroutines.launch
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import okhttp3.OkHttpClient
@@ -40,10 +44,14 @@ import app.haveireadthat.ui.LibraryScreen
 import app.haveireadthat.ui.LoansScreen
 import app.haveireadthat.ui.SetupScreen
 
+/** Sets up the cover loader once for the whole app, not again on every rotation. */
+class HaveIReadThatApp : Application(), ImageLoaderFactory {
+    override fun newImageLoader(): ImageLoader = coverLoader(this)
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Coil.setImageLoader(coverLoader(applicationContext))
         enableEdgeToEdge()
         val shared = sharedText(intent)
         setContent { AppTheme { App(shared) } }
@@ -52,7 +60,11 @@ class MainActivity : ComponentActivity() {
     /** Text from "Delen" in another app: the subject (often the title) and the text or link. */
     private fun sharedText(intent: Intent?): String? {
         if (intent?.action != Intent.ACTION_SEND) return null
-        val parts = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getStringExtra(Intent.EXTRA_TEXT))
+        // CharSequence: some apps share styled text, which getStringExtra() would drop.
+        val parts = listOfNotNull(
+            intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT)?.toString(),
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
+        )
         return parts.joinToString("\n").take(2_000).ifBlank { null }
     }
 }
@@ -62,6 +74,7 @@ fun App(shared: String? = null) {
     val context = LocalContext.current
     val settings = remember { Settings(context.applicationContext) }
     val nav = rememberNavController()
+    val scope = rememberCoroutineScope()
 
     // Opened through "Delen": go straight to adding a book (once you're logged in),
     // and only once, not again after rotating the screen.
@@ -77,6 +90,11 @@ fun App(shared: String? = null) {
         composable("setup") {
             SetupScreen(settings) {
                 nav.navigate("library") { popUpTo("setup") { inclusive = true } }
+                // Shared before the app was set up: continue with it now.
+                if (shared != null && !sharedHandled) {
+                    sharedHandled = true
+                    nav.navigate("add?shared=${Uri.encode(shared)}")
+                }
             }
         }
         composable("library") {
@@ -87,8 +105,9 @@ fun App(shared: String? = null) {
                 onLoans = { nav.navigate("loans") },
                 onLogout = {
                     settings.clear()
-                    Repository.forget(context)
                     WorkManager.getInstance(context).cancelUniqueWork("sync")
+                    clearCovers(context)
+                    scope.launch { Repository.forget(context) }
                     nav.navigate("setup") { popUpTo("library") { inclusive = true } }
                 },
             )
@@ -138,7 +157,15 @@ fun AppTheme(content: @Composable () -> Unit) {
  * Covers come from your own server; private ones need the token. It is only added
  * to HTTPS requests for that exact server, never to other hosts.
  */
-private fun coverLoader(context: Context) = ImageLoaderFactory {
+/** Private covers shouldn't stay on the phone after logging out. */
+@OptIn(ExperimentalCoilApi::class)
+private fun clearCovers(context: Context) {
+    val loader = Coil.imageLoader(context)
+    loader.memoryCache?.clear()
+    loader.diskCache?.clear()
+}
+
+private fun coverLoader(context: Context): ImageLoader =
     ImageLoader.Builder(context)
         .okHttpClient {
             OkHttpClient.Builder()
@@ -157,4 +184,4 @@ private fun coverLoader(context: Context) = ImageLoaderFactory {
                 .build()
         }
         .build()
-}
+

@@ -238,10 +238,16 @@ final class Web
             if (microtime(true) > $deadline) {
                 break;
             }
-            if ($this->app->books->fillFromCatalog($book, $this->app->catalog->lookup($book['isbn']))) {
-                $filled++;
+            try {
+                if ($this->app->books->fillFromCatalog($book, $this->app->catalog->lookup($book['isbn']))) {
+                    $filled++;
+                }
+                $this->warmCover($book);
+            } catch (\Throwable $e) {
+                // One odd record mustn't stop the rest: log it and mark the book as done.
+                error_log("Aanvullen van boek {$book['id']} mislukt: {$e}");
+                $this->app->books->fillFromCatalog($book, null);
             }
-            $this->warmCover($book);
             $done++;
         }
         $left = $this->app->books->countToEnrich();
@@ -624,6 +630,11 @@ final class Web
 
     public function startTwoFactor(Request $request): Response
     {
+        if ($this->app->auth->twoFactorEnabled()) {
+            // Replacing it would lock out the real authenticator: turn it off first (with a code).
+            $this->app->flash('error', 'Tweestapsverificatie staat al aan. Zet die eerst uit met een code.');
+            return Response::redirect($this->app->url('/settings'));
+        }
         $_SESSION['totp_setup'] = Totp::generateSecret();
         return $this->renderSettings($request);
     }
@@ -632,6 +643,11 @@ final class Web
     {
         $secret = $_SESSION['totp_setup'] ?? null;
         $code = $request->input('code');
+        if ($this->app->auth->twoFactorEnabled()) {
+            unset($_SESSION['totp_setup']);
+            $this->app->flash('error', 'Tweestapsverificatie staat al aan. Zet die eerst uit met een code.');
+            return Response::redirect($this->app->url('/settings'));
+        }
         if (!is_string($secret) || !is_string($code) || Totp::verify($secret, $code) === null) {
             $this->app->flash('error', 'Die code klopt niet. Controleer de tijd op je telefoon en probeer het opnieuw.');
             return $this->renderSettings($request);
@@ -647,9 +663,12 @@ final class Web
     public function disableTwoFactor(Request $request): Response
     {
         $code = $request->input('code');
-        if (!is_string($code) || !$this->app->auth->verifySecondFactor($code)) {
+        if (!$this->app->auth->registerAttempt($request->ip)) {
+            $this->app->flash('error', 'Te veel pogingen. Probeer het over een kwartier opnieuw.');
+        } elseif (!is_string($code) || !$this->app->auth->verifySecondFactor($code)) {
             $this->app->flash('error', 'Die code klopt niet; tweestapsverificatie staat nog aan.');
         } else {
+            $this->app->auth->clearAttempts($request->ip);
             $this->app->auth->disableTwoFactor();
             $this->app->flash('ok', 'Tweestapsverificatie staat uit.');
         }

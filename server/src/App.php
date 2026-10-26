@@ -126,7 +126,7 @@ final class App
     }
 
     /** Pages anyone may open: the login form, and the public shelf, book pages and feed. */
-    private static function isPublicPath(string $path): bool
+    public static function isPublicPath(string $path): bool
     {
         return in_array($path, ['/', '/login', '/login/code', '/feed.xml'], true)
             || preg_match('#^/(boek|cover)/\d+$#', $path) === 1; // cover checks access itself

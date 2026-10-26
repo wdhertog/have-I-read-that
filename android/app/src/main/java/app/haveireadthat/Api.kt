@@ -15,7 +15,9 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlinx.serialization.SerializationException
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
 val FORMATS = linkedMapOf(
@@ -204,10 +206,24 @@ data class FinishRequest(
     val toot: Boolean = false,
 )
 
-open class ApiException(message: String) : IOException(message)
+/** The server answered, but not with what we asked for; status is the HTTP status (0: no request made). */
+open class ApiException(message: String, val status: Int = 0) : IOException(message) {
+    /** Worth trying again later: the server is down or busy, or the login needs fixing first. */
+    val retryable: Boolean
+        get() = status == 0 || status in 300..399 || status in listOf(401, 403, 408, 429) || status >= 500
+}
 
 /** The server already has a book like this one (HTTP 409). */
-class DuplicateException(message: String, val existing: Book) : ApiException(message)
+class DuplicateException(message: String, val existing: Book) : ApiException(message, 409)
+
+/** HTTP 2xx, but the body isn't the JSON we expect (e.g. a PHP notice in front of it). The change did happen. */
+class BadResponseException(status: Int) : ApiException("Onverwacht antwoord van de server.", status)
+
+/**
+ * The request went out but no answer came in time: the server may or may not have
+ * done it, so it must not be sent again blindly.
+ */
+class NoAnswerException : ApiException("Geen antwoord van de server. Kijk even of het gelukt is voor je het opnieuw doet.", -1)
 
 /** Talks to the /api endpoints of the PHP server. */
 class ApiClient(serverUrl: String, private val token: String) {
@@ -267,24 +283,40 @@ class ApiClient(serverUrl: String, private val token: String) {
         val url = base.newBuilder().addPathSegments(path).apply {
             query.forEach { (key, value) -> if (!value.isNullOrBlank()) addQueryParameter(key, value) }
         }.build()
-        return json.decodeFromString<T>(execute(Request.Builder().url(url).get()))
+        return decode(execute(Request.Builder().url(url).get()))
     }
 
     private suspend inline fun <reified T> post(path: String, body: String): T {
         val url = base.newBuilder().addPathSegments(path).build()
-        return json.decodeFromString<T>(execute(Request.Builder().url(url).post(body.toRequestBody(JSON))))
+        return decode(execute(Request.Builder().url(url).post(body.toRequestBody(JSON))))
+    }
+
+    private inline fun <reified T> decode(body: String): T = try {
+        json.decodeFromString<T>(body)
+    } catch (e: SerializationException) {
+        throw BadResponseException(200)
+    } catch (e: IllegalArgumentException) {
+        throw BadResponseException(200)
     }
 
     private suspend fun execute(builder: Request.Builder): String = withContext(Dispatchers.IO) {
         val request = builder.header("Authorization", "Bearer $token").header("Accept", "application/json").build()
-        http.newCall(request).execute().use { response ->
+        val call = http.newCall(request)
+        val response = try {
+            call.execute()
+        } catch (e: SocketTimeoutException) {
+            // A connect timeout means nothing was sent; a read timeout means it may have been done.
+            if (e.message.orEmpty().contains("connect", ignoreCase = true)) throw e
+            throw NoAnswerException()
+        }
+        response.use {
             val body = response.body?.string().orEmpty()
             if (response.code == 409) {
                 val duplicate = runCatching { json.decodeFromString<DuplicateBody>(body) }.getOrNull()
                 duplicate?.existing?.let { throw DuplicateException(duplicate.error, it) }
             }
             if (!response.isSuccessful) {
-                throw ApiException(errorMessage(body) ?: "Server gaf HTTP ${response.code}")
+                throw ApiException(errorMessage(body) ?: "Server gaf HTTP ${response.code}", response.code)
             }
             body
         }
