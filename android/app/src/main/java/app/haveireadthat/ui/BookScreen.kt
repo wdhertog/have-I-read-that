@@ -44,11 +44,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.haveireadthat.Book
-import app.haveireadthat.BookResponse
+import app.haveireadthat.ApiException
+import app.haveireadthat.Outcome
+import app.haveireadthat.Repository
 import app.haveireadthat.FinishRequest
 import app.haveireadthat.ProgressRequest
 import app.haveireadthat.Read
@@ -57,6 +60,7 @@ import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
 import app.haveireadthat.StartRequest
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.time.LocalDate
 
 /** Which read the dates dialog is editing: an existing one, or a new one for this book. */
@@ -68,7 +72,10 @@ private sealed interface ReadEdit {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) -> Unit) {
+    val context = LocalContext.current
+    val repository = remember { Repository(context) }
     var book by remember { mutableStateOf<Book?>(null) }
+    var offline by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -78,27 +85,43 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
 
     LaunchedEffect(id) {
         try {
-            book = settings.client().book(id)
+            val loaded = repository.book(id)
+            book = loaded.value
+            offline = loaded.offline
         } catch (e: Exception) {
             error = e.message ?: "Laden mislukt"
         }
     }
 
-    /** Run an action that returns the updated book, then report how posting went. */
-    fun act(success: String, call: suspend () -> BookResponse) {
+    /**
+     * Run an action, then say how it went: done (and posted or not), or saved on the
+     * phone to send later.
+     */
+    fun act(success: String, call: suspend () -> Outcome) {
         busy = true
         scope.launch {
             try {
-                val response = call()
-                book = response.book
-                val toot = response.toot
-                snackbar.showSnackbar(
-                    when {
-                        toot == null -> success
-                        toot.posted -> "$success Gepost naar Mastodon."
-                        else -> "$success Niet gepost: ${toot.error}"
+                when (val outcome = call()) {
+                    is Outcome.Sent -> {
+                        book = outcome.response.book
+                        val toot = outcome.response.toot
+                        snackbar.showSnackbar(
+                            when {
+                                toot == null -> success
+                                toot.posted -> "$success Gepost naar Mastodon."
+                                else -> "$success Niet gepost: ${toot.error}"
+                            }
+                        )
                     }
-                )
+                    is Outcome.Queued -> {
+                        book = outcome.book
+                        snackbar.showSnackbar("$success Opgeslagen op je telefoon; wordt verstuurd zodra je verbinding hebt.")
+                    }
+                }
+            } catch (e: ApiException) {
+                snackbar.showSnackbar("Mislukt: ${e.message}")
+            } catch (e: IOException) {
+                snackbar.showSnackbar("Geen verbinding; probeer het later opnieuw.")
             } catch (e: Exception) {
                 snackbar.showSnackbar("Mislukt: ${e.message}")
             } finally {
@@ -115,7 +138,7 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Terug") }
                 },
                 actions = {
-                    if (book != null) {
+                    if (book != null && id > 0) {
                         IconButton(onClick = { onEdit(id) }) { Icon(Icons.Default.Edit, contentDescription = "Bewerken") }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Verwijderen") }
                     }
@@ -139,27 +162,37 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Header(current)
+            if (offline || current.id < 0) {
+                Text(
+                    if (current.id < 0) "Nog niet naar de server gestuurd; dat gebeurt zodra je verbinding hebt."
+                    else "Offline: dit is de versie die op je telefoon staat.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             if (current.status == "reading") {
                 ProgressCard(current, busy) { request ->
-                    act("Bijgewerkt.") { settings.client().progress(current.id, request) }
+                    act("Bijgewerkt.") { repository.progress(current, request) }
                 }
             }
             if (current.status != "reading") {
                 StartCard(busy, settings.postByDefault, again = current.status == "read") { toot ->
                     act("Veel leesplezier!") {
-                        settings.client().start(current.id, StartRequest(LocalDate.now().toString(), toot))
+                        repository.start(current, StartRequest(LocalDate.now().toString(), toot))
                     }
                 }
             }
             if (current.status == "reading" || current.status == "to-read") {
                 FinishCard(current, busy, settings.postByDefault) { request ->
                     act(if (request.dnf) "Gemarkeerd als niet uitgelezen." else "Uitgelezen! 🎉") {
-                        settings.client().finish(current.id, request)
+                        repository.finish(current, request)
                     }
                 }
             }
-            Reads(current, onEdit = { readEdit = ReadEdit.Existing(it) }, onAdd = { readEdit = ReadEdit.New })
+            if (current.id > 0) {
+                Reads(current, onEdit = { readEdit = ReadEdit.Existing(it) }, onAdd = { readEdit = ReadEdit.New })
+            }
             Posts(current)
         }
     }
@@ -194,14 +227,16 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
             onSave = { dates ->
                 readEdit = null
                 act("Opgeslagen.") {
-                    if (existing != null) settings.client().updateRead(existing.id, dates)
-                    else settings.client().addRead(id, dates)
+                    Outcome.Sent(
+                        if (existing != null) settings.client().updateRead(existing.id, dates)
+                        else settings.client().addRead(id, dates)
+                    )
                 }
             },
             onDelete = existing?.let { read ->
                 {
                     readEdit = null
-                    act("Verwijderd.") { settings.client().deleteRead(read.id) }
+                    act("Verwijderd.") { Outcome.Sent(settings.client().deleteRead(read.id)) }
                 }
             },
         )

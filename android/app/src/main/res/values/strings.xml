@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Have I read that?</string>
+    <string name="widget_description">Wat je nu leest, en je leesdoel</string>
 </resources>

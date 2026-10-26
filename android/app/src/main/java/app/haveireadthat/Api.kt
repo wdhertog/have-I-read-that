@@ -87,6 +87,9 @@ data class LookupResponse(
 )
 
 @Serializable
+data class SearchResponse(val results: List<LookupResult> = emptyList(), val error: String? = null)
+
+@Serializable
 data class MastodonInfo(
     val configured: Boolean,
     val instance: String = "",
@@ -161,6 +164,8 @@ class ApiClient(serverUrl: String, private val token: String) {
         post("api/books/$id/finish", json.encodeToString(request))
 
     suspend fun lookup(isbn: String): LookupResponse = get("api/lookup", mapOf("isbn" to isbn))
+
+    suspend fun search(query: String): SearchResponse = get("api/search", mapOf("q" to query))
 
     // Edits go through POST: some shared hosting blocks PUT and DELETE.
     suspend fun update(id: Int, book: NewBook): BookResponse = post("api/books/$id", json.encodeToString(book))

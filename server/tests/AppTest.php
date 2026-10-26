@@ -455,4 +455,14 @@ final class AppTest extends TestCase
         self::assertStringContainsString('Vertaald door Niemand', $export);
         self::assertStringContainsString(',slow,Character,Yes,No,No,Yes,', $export);
     }
+
+    public function testApiSearchNeedsAQuery(): void
+    {
+        [$status] = $this->api('GET', '/api/search');
+        self::assertSame(422, $status);
+        // Open Library may be unreachable in CI: then the answer is empty, never a 500.
+        [$status, $body] = $this->api('GET', '/api/search?q=' . rawurlencode('De avonden'));
+        self::assertSame(200, $status);
+        self::assertIsArray($body['results']);
+    }
 }

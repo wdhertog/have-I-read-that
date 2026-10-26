@@ -216,6 +216,20 @@ final class Api
         return Response::json(['toot' => $toot], $toot['posted'] ? 200 : 502);
     }
 
+    /** Search Open Library by title, author or ISBN (for books shared from another app). */
+    public function search(Request $request): Response
+    {
+        $q = mb_substr($request->query('q'), 0, 200);
+        if ($q === '') {
+            return Response::json(['error' => 'Geef een zoekterm.'], 422);
+        }
+        try {
+            return Response::json(['results' => OpenLibrary::search($q, 10), 'error' => null]);
+        } catch (\RuntimeException $e) {
+            return Response::json(['results' => [], 'error' => $e->getMessage()]);
+        }
+    }
+
     /** Look up a scanned ISBN: is it already in the library, and what does Open Library know? */
     public function lookup(Request $request): Response
     {
