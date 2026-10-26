@@ -14,6 +14,8 @@
     <?php if ($finished): ?>
       <p class="muted">Uitgelezen op <?= $v->e(implode(', ', $finished)) ?></p>
     <?php endif ?>
+    <?php if ($book['genre'] ?? null): ?><p class="muted"><?= $v->e($book['genre']) ?></p><?php endif ?>
+    <?php if ($book['description'] ?? null): ?><div class="description"><?= nl2br($v->e($book['description'])) ?></div><?php endif ?>
     <?php if ($showReviews && $book['review']): ?><blockquote><?= $v->e($book['review']) ?></blockquote><?php endif ?>
   </div>
 </section>

@@ -65,6 +65,18 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
       <label>Uitgelezen op <input name="finished" type="date"></label>
     <?php endif ?>
     <label class="wide">Recensie <textarea name="review" rows="5"><?= $val('review') ?></textarea></label>
+    <details class="wide"<?= ($book['description'] ?? null) || ($book['genre'] ?? null) || ($book['original_title'] ?? null) ? ' open' : '' ?>>
+      <summary>Meer gegevens (worden ook aangevuld uit de bronnen)</summary>
+      <div class="grid">
+        <label>Genre <input name="genre" value="<?= $val('genre') ?>" maxlength="255" placeholder="fantasy, roman"></label>
+        <label>Eerste verschijning <input name="first_published" value="<?= $val('first_published') ?>" inputmode="numeric" maxlength="5" placeholder="1998"></label>
+        <label>Oorspronkelijke titel <input name="original_title" value="<?= $val('original_title') ?>" maxlength="500"></label>
+        <label>Oorspronkelijke taal <input name="original_language" value="<?= $v->e(($book['original_language'] ?? '') !== '' ? App\Language::label($book['original_language']) : '') ?>" maxlength="20" placeholder="Engels"></label>
+        <label>Vertaler <input name="translator" value="<?= $val('translator') ?>" maxlength="255"></label>
+        <label>Prijzen <input name="awards" value="<?= $val('awards') ?>" maxlength="1000"></label>
+        <label class="wide">Beschrijving <textarea name="description" rows="5"><?= $val('description') ?></textarea></label>
+      </div>
+    </details>
     <label class="check"><input type="checkbox" name="owned" <?= $owned ? 'checked' : '' ?>> In bezit</label>
     <?php if ($edit): ?>
       <label class="wide">Eigen omslag (JPEG, PNG of WebP) <input type="file" name="cover" accept="image/jpeg,image/png,image/webp"></label>

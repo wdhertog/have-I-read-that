@@ -444,6 +444,8 @@ final class Web
             'reviewCount' => count($this->app->yearReview->books($year)),
             'books' => $this->app->books->readInYear($year),
             'topAuthors' => $this->app->books->topAuthors(),
+            'languages' => $this->app->books->readByLanguage(),
+            'genres' => $this->app->books->topGenres(),
             'maxBooks' => max(array_column($years, 'books') ?: [0]),
         ]);
     }

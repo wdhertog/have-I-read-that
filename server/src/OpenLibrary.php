@@ -24,8 +24,31 @@ final class OpenLibrary
         if (!$results) {
             return null;
         }
+        $result = $results[0];
+        $result['first_published'] = $result['year'];
+        $result['description'] = self::workDescription($result['work'] ?? null);
+        unset($result['work']);
         // Keep the scanned ISBN rather than whichever edition Open Library lists first.
-        return ['isbn' => $isbn] + $results[0];
+        return ['isbn' => $isbn] + $result;
+    }
+
+    /** The description of a work ("/works/OL45804W"), often the publisher's blurb in English. */
+    private static function workDescription(?string $work): ?string
+    {
+        if ($work === null || !preg_match('#^/works/OL\d+W$#', $work)) {
+            return null;
+        }
+        $json = Http::get("https://openlibrary.org{$work}.json");
+        $description = $json !== null ? (json_decode($json, true)['description'] ?? null) : null;
+        if (is_array($description)) {
+            $description = $description['value'] ?? null;
+        }
+        if (!is_string($description)) {
+            return null;
+        }
+        // Drop the markdown source notes some descriptions end with.
+        $description = trim((string) preg_replace(['/\R-{3,}.*$/s', '/\(\[source\]\[\d+\]\)/', '/\R\s*\[\d+\]:\s*\S+/'], '', $description));
+        return $description !== '' ? mb_substr($description, 0, 5000) : null;
     }
 
     /**
@@ -80,7 +103,7 @@ final class OpenLibrary
      */
     private static function fetch(array $params): array
     {
-        $params['fields'] = 'title,author_name,isbn,number_of_pages_median,first_publish_year';
+        $params['fields'] = 'key,title,author_name,isbn,number_of_pages_median,first_publish_year';
         $ch = curl_init('https://openlibrary.org/search.json?' . http_build_query($params));
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -105,6 +128,7 @@ final class OpenLibrary
                 'isbn' => (string) ($isbn13[0] ?? $isbns[0] ?? ''),
                 'pages' => isset($doc['number_of_pages_median']) ? (int) $doc['number_of_pages_median'] : null,
                 'year' => isset($doc['first_publish_year']) ? (int) $doc['first_publish_year'] : null,
+                'work' => isset($doc['key']) ? (string) $doc['key'] : null,
             ];
         }
         return $results;

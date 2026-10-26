@@ -25,6 +25,13 @@ val FORMATS = linkedMapOf(
     "audio" to "Luisterboek",
 )
 
+/** Dutch names for the language codes the server stores; others are shown as they are. */
+val LANGUAGES = mapOf(
+    "nl" to "Nederlands", "en" to "Engels", "de" to "Duits", "fr" to "Frans", "es" to "Spaans", "it" to "Italiaans",
+    "pt" to "Portugees", "sv" to "Zweeds", "da" to "Deens", "no" to "Noors", "fi" to "Fins", "pl" to "Pools",
+    "ru" to "Russisch", "la" to "Latijn", "el" to "Grieks", "ja" to "Japans", "zh" to "Chinees",
+)
+
 val STATUSES = linkedMapOf(
     "reading" to "Aan het lezen",
     "to-read" to "Wil ik lezen",
@@ -54,6 +61,13 @@ data class Book(
     @SerialName("series_number") val seriesNumber: Double? = null,
     val publisher: String? = null,
     @SerialName("published_year") val publishedYear: Int? = null,
+    val description: String? = null,
+    val genre: String? = null,
+    @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_language") val originalLanguage: String? = null,
+    val translator: String? = null,
+    @SerialName("first_published") val firstPublished: Int? = null,
+    val awards: String? = null,
     @SerialName("lent_to") val lentTo: String? = null,
     @SerialName("lent_since") val lentSince: String? = null,
     val reads: List<Read> = emptyList(),

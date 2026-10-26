@@ -53,6 +53,30 @@
 </section>
 <?php endif ?>
 
+<?php if ($languages || $genres): ?>
+<div class="two">
+<?php if ($languages): ?>
+<section class="card">
+  <h2>Gelezen per taal</h2>
+  <p class="muted">De oorspronkelijke taal; tussen haakjes hoeveel je daarvan in vertaling las.</p>
+  <ul>
+    <?php foreach ($languages as $l): ?>
+      <li><?= $v->e(App\Language::label($l['language'])) ?>: <?= $l['books'] ?> <?= $l['books'] === 1 ? 'boek' : 'boeken' ?><?= $l['translated'] ? ' <span class="muted">(' . $l['translated'] . ' vertaald)</span>' : '' ?></li>
+    <?php endforeach ?>
+  </ul>
+  <?php $translated = array_sum(array_column($languages, 'translated')); $total = array_sum(array_column($languages, 'books')); ?>
+  <?php if ($translated): ?><p><?= $translated ?> van de <?= $total ?> boeken (<?= round(100 * $translated / $total) ?>%) las je in vertaling.</p><?php endif ?>
+</section>
+<?php endif ?>
+<?php if ($genres): ?>
+<section class="card">
+  <h2>Meest gelezen genres</h2>
+  <ol><?php foreach ($genres as $genre => $n): ?><li><a href="<?= $v->url('/books', ['q' => $genre]) ?>"><?= $v->e($genre) ?></a> <span class="muted">(<?= $n ?>)</span></li><?php endforeach ?></ol>
+</section>
+<?php endif ?>
+</div>
+<?php endif ?>
+
 <?php if ($topAuthors): ?>
 <section class="card">
   <h2>Meest gelezen auteurs</h2>

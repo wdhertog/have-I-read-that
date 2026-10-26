@@ -95,6 +95,24 @@ final class Books
             }
             $data['published_year'] = (int) $data['published_year'];
         }
+        $data['extra'] = [];
+        foreach (self::DETAIL_FIELDS as $key => $max) {
+            if (array_key_exists($key, $input)) {
+                $data['extra'][$key] = $str($key, $max);
+            }
+        }
+        if (isset($data['extra']['original_language'])) {
+            $data['extra']['original_language'] = Language::normalize($data['extra']['original_language']);
+        }
+        if (isset($data['extra']['genre'])) {
+            $data['extra']['genre'] = self::normalizeTags($data['extra']['genre']);
+        }
+        if (isset($data['extra']['first_published'])) {
+            if (!preg_match('/^-?\d{1,4}$/', $data['extra']['first_published'])) {
+                throw new InvalidArgumentException('Eerste verschijning moet een jaartal zijn, bijv. 1947.');
+            }
+            $data['extra']['first_published'] = (int) $data['extra']['first_published'];
+        }
         if ($data['series_number'] !== null) {
             $number = str_replace(',', '.', $data['series_number']);
             if (!is_numeric($number) || (float) $number < 0 || (float) $number > 99999) {
@@ -177,9 +195,10 @@ final class Books
             $args[] = $status;
         }
         if ($q !== '') {
-            $sql .= ' AND (b.title LIKE ? OR b.author LIKE ? OR b.tags LIKE ? OR b.series LIKE ? OR b.isbn = ?)';
+            $sql .= ' AND (b.title LIKE ? OR b.author LIKE ? OR b.tags LIKE ? OR b.series LIKE ? OR b.genre LIKE ?
+                      OR b.translator LIKE ? OR b.original_title LIKE ? OR b.isbn = ?)';
             $like = '%' . addcslashes($q, '%_\\') . '%';
-            array_push($args, $like, $like, $like, $like, $q);
+            array_push($args, $like, $like, $like, $like, $like, $like, $like, $q);
         }
         if ($shelf !== null && $shelf !== '') {
             $sql .= ' AND b.tags LIKE ?';
@@ -377,6 +396,7 @@ final class Books
                  $data['publisher'], $data['published_year']],
             );
             $id = (int) $this->db->lastInsertId();
+            $this->saveDetails($id, $data['extra'] ?? []);
             $today = date('Y-m-d');
             if ($data['status'] === 'reading') {
                 $this->addRead($id, $started ?? $today, null);
@@ -402,6 +422,17 @@ final class Books
              $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number'],
              $data['publisher'], $data['published_year'], $id],
         );
+        $this->saveDetails($id, $data['extra'] ?? []);
+    }
+
+    /** @param array<string, mixed> $details Column => value, only DETAIL_FIELDS. */
+    private function saveDetails(int $id, array $details): void
+    {
+        $details = array_intersect_key($details, self::DETAIL_FIELDS);
+        if ($details) {
+            $columns = implode(', ', array_map(static fn (string $c) => "{$c} = ?", array_keys($details)));
+            $this->query("UPDATE books SET {$columns} WHERE id = ?", [...array_values($details), $id]);
+        }
     }
 
     public function delete(int $id): void
@@ -557,6 +588,20 @@ final class Books
         'author' => ['author', 'auteur'], 'pages' => ['pages', "pagina's"], 'publisher' => ['publisher', 'uitgever'],
         'year' => ['published_year', 'jaar'], 'language' => ['language', 'taal'],
         'series' => ['series', 'serie'], 'series_number' => ['series_number', 'deel'],
+        'description' => ['description', 'beschrijving'], 'genre' => ['genre', 'genre'],
+        'original_title' => ['original_title', 'oorspronkelijke titel'], 'original_language' => ['original_language', 'oorspronkelijke taal'],
+        'translator' => ['translator', 'vertaler'], 'first_published' => ['first_published', 'eerste verschijning'],
+        'awards' => ['awards', 'prijzen'],
+    ];
+
+    /**
+     * Details mostly filled in from catalogues, with their maximum length. Saved only
+     * when the input has them, so a client that doesn't know them (an older app)
+     * leaves them alone.
+     */
+    public const DETAIL_FIELDS = [
+        'description' => self::MAX_REVIEW, 'genre' => 255, 'original_title' => 500, 'original_language' => 20,
+        'translator' => 255, 'first_published' => 6, 'awards' => 1000,
     ];
 
     /**
@@ -578,7 +623,7 @@ final class Books
                 $empty = $empty && isset($set['series']); // a number only belongs with the series it came with
             }
             if ($empty && $value !== null && $value !== '') {
-                $set[$column] = is_string($value) ? mb_substr($value, 0, $column === 'language' ? 20 : 255) : $value;
+                $set[$column] = is_string($value) ? mb_substr($value, 0, self::DETAIL_FIELDS[$column] ?? ($column === 'language' ? 20 : 255)) : $value;
                 $changes[] = $label;
             }
         }
@@ -808,6 +853,43 @@ final class Books
     }
 
     /** @return list<array{author: string, n: int}> */
+    /**
+     * Read books per original language (or the book's own when it isn't a translation),
+     * and how many of them you read in translation.
+     *
+     * @return list<array{language: string, books: int, translated: int}>
+     */
+    public function readByLanguage(): array
+    {
+        return array_map(static fn (array $r) => ['language' => $r['lang'], 'books' => (int) $r['books'], 'translated' => (int) $r['translated']],
+            $this->query(
+                "SELECT COALESCE(original_language, language) AS lang, COUNT(*) AS books,
+                        SUM(original_language IS NOT NULL AND language IS NOT NULL AND original_language != language) AS translated
+                 FROM books WHERE status = 'read' AND COALESCE(original_language, language) IS NOT NULL
+                 GROUP BY lang ORDER BY books DESC, lang",
+            )->fetchAll());
+    }
+
+    /** @return array<string, int> Genre => number of read books, most read first. */
+    public function topGenres(int $limit = 10): array
+    {
+        $counts = [];
+        $names = [];
+        foreach ($this->query("SELECT genre FROM books WHERE status = 'read' AND genre IS NOT NULL AND genre != ''")->fetchAll(PDO::FETCH_COLUMN) as $genres) {
+            foreach (self::tagList($genres) as $genre) {
+                $key = mb_strtolower($genre);
+                $names[$key] ??= $genre;
+                $counts[$key] = ($counts[$key] ?? 0) + 1;
+            }
+        }
+        arsort($counts);
+        $top = [];
+        foreach (array_slice($counts, 0, $limit, true) as $key => $n) {
+            $top[$names[$key]] = $n;
+        }
+        return $top;
+    }
+
     public function topAuthors(int $limit = 10): array
     {
         return $this->query(
@@ -827,6 +909,9 @@ final class Books
         $book['pages'] = $book['pages'] !== null ? (int) $book['pages'] : null;
         if (array_key_exists('published_year', $book)) {
             $book['published_year'] = $book['published_year'] !== null ? (int) $book['published_year'] : null;
+        }
+        if (array_key_exists('first_published', $book)) {
+            $book['first_published'] = $book['first_published'] !== null ? (int) $book['first_published'] : null;
         }
         if (array_key_exists('series_number', $book)) {
             $book['series_number'] = $book['series_number'] !== null ? (float) $book['series_number'] : null;

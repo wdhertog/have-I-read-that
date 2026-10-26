@@ -42,13 +42,6 @@ XML;
 
     private const KB_EMPTY = '<srw:searchRetrieveResponse xmlns:srw="http://www.loc.gov/zing/srw/"><srw:numberOfRecords>0</srw:numberOfRecords></srw:searchRetrieveResponse>';
 
-    /** The work is in two series: the numbered one wins. */
-    private const WIKIDATA_ANSWER = '{"head":{"vars":["seriesLabel","ordinal","direct"]},"results":{"bindings":['
-        . '{"seriesLabel":{"type":"literal","value":"Q98765"},"direct":{"type":"literal","value":"1"}},'
-        . '{"seriesLabel":{"type":"literal","value":"Ooievaar pocket"},"direct":{"type":"literal","value":"1"}},'
-        . '{"seriesLabel":{"type":"literal","value":"Winterverhalen"},"ordinal":{"type":"literal","value":"2"},"direct":{"type":"literal","value":"0"}}'
-        . ']}}';
-
     private PDO $db;
     private App $app;
 
@@ -150,7 +143,18 @@ XML;
         self::assertSame([
             'title' => 'De avonden: een winterverhaal', 'author' => 'Gerard Reve', 'publisher' => 'De Bezige Bij',
             'year' => 2009, 'pages' => 319, 'language' => 'nl',
+            'translator' => null, 'original_title' => null, 'original_language' => null,
         ], Kb::parse(self::KB_RECORD));
+        // A translation: the translator is no author, and the notes give the original.
+        $translation = str_replace(
+            '<dc:creator>Reve, Gerard, 1923-2006 (auteur)</dc:creator>',
+            '<dc:creator>McCarthy, Cormac (auteur)</dc:creator><dc:creator>Vertommen, Jan (vertaler)</dc:creator>'
+            . '<dc:description>Vert. uit het Engels. - Vert. van: The road. - New York : Knopf, 2006</dc:description>',
+            self::KB_RECORD,
+        );
+        $record = Kb::parse($translation);
+        self::assertSame(['Cormac McCarthy', 'Jan Vertommen', 'The road', 'en'],
+            [$record['author'], $record['translator'], $record['original_title'], $record['original_language']]);
         self::assertNull(Kb::parse(self::KB_EMPTY));
         self::assertNull(Kb::parse('<html>Service unavailable'));
         // What the KB really sends: a Dutch word first, the code after it.
@@ -201,9 +205,6 @@ XML;
             }
             if (str_starts_with($url, 'https://books.google.com/books/content')) {
                 return $cover;
-            }
-            if (str_starts_with($url, 'https://query.wikidata.org/sparql?format=json&query=')) {
-                return self::WIKIDATA_ANSWER;
             }
             return null;
         };
@@ -262,75 +263,192 @@ XML;
         self::assertContains('90-234-1706-2', $spellings);
         self::assertContains('9023417062', $spellings);
         self::assertCount(29, Wikidata::spellings('9791032305690'), 'no ISBN-10 for 979');
-        $query = Wikidata::query('9789023417069');
+        $query = Wikidata::isbnQuery('9789023417069');
         self::assertStringContainsString('"978-90-234-1706-9"', $query);
-        self::assertStringContainsString('wdt:P629', $query, 'translations look at the original work');
+        self::assertStringContainsString('wdt:P629', $query, 'translations lead to the original work');
+        self::assertStringContainsString('(wd:Q47209 0) (wd:Q1 1)', Wikidata::detailsQuery('Q47209', 'Q1'));
+        self::assertStringNotContainsString('wd:Q47209 1', Wikidata::detailsQuery('Q47209', 'Q47209'));
+        // Search text can't break out of the query.
+        self::assertStringNotContainsString('"x"', Wikidata::titleQuery('Een "x" boek'));
     }
 
-    public function testWikidataAnswerIsRead(): void
+    /**
+     * A fake Wikidata and Wikipedia for Harry Potter 2: the Dutch edition Q1 is known by
+     * ISBN 9789076174082 only; the work Q47209 can be found by title.
+     */
+    private function fakeWikidata(array &$asked): \Closure
     {
-        self::assertSame(['series' => 'Winterverhalen', 'series_number' => 2.0], Wikidata::parse(self::WIKIDATA_ANSWER));
-        self::assertNull(Wikidata::parse('{"results":{"bindings":[]}}'));
-        self::assertNull(Wikidata::parse('<html>Too many requests'));
-        $odd = '{"results":{"bindings":[{"seriesLabel":{"value":"Schijfwereld"},"ordinal":{"value":"3a"}}]}}';
-        self::assertSame(['series' => 'Schijfwereld', 'series_number' => null], Wikidata::parse($odd));
+        $rows = static fn (array $rows) => json_encode(['results' => ['bindings' => array_map(
+            static fn (array $row) => array_map(static fn ($v) => ['value' => (string) $v], array_filter($row, static fn ($v) => $v !== null)),
+            $rows,
+        )]]);
+        $entity = static fn (string $q) => "http://www.wikidata.org/entity/{$q}";
+        return static function (string $url) use (&$asked, $rows, $entity): ?string {
+            $asked[] = $url = urldecode($url);
+            if (str_starts_with($url, 'https://nl.wikipedia.org/api/rest_v1/page/summary/')) {
+                return json_encode(['type' => 'standard', 'extract' => 'Harry Potter en de Geheime Kamer is het tweede boek.']);
+            }
+            if (!str_starts_with($url, 'https://query.wikidata.org/')) {
+                return null;
+            }
+            if (str_contains($url, 'wdt:P212')) {
+                return $rows(str_contains($url, '"978-90-76174-08-2"') ? [['edition' => $entity('Q1'), 'work' => $entity('Q47209')]] : []);
+            }
+            if (str_contains($url, 'mwapi')) {
+                $hit = static fn (string $q, string $name, string $author) => ['item' => $entity($q), 'name' => $name, 'authorName' => $author];
+                return $rows([
+                    $hit('Q43361', "Harry Potter and the Philosopher's Stone", 'J. K. Rowling'),
+                    $hit('Q47209', 'Harry Potter and the Chamber of Secrets', 'J. K. Rowling'),
+                    $hit('Q47209', 'Harry Potter en de Geheime Kamer', 'J. K. Rowling'),
+                    $hit('Q99999', 'De geheime kamer', 'Iemand Anders'),
+                ]);
+            }
+            if (str_contains($url, 'VALUES (?item ?direct)')) {
+                $row = static fn (int $direct, string $prop, string $value, ?string $label = null, ?string $ordinal = null)
+                    => ['direct' => $direct, 'prop' => $prop, 'value' => $value, 'valueLabel' => $label ?? $value, 'ordinal' => $ordinal];
+                $details = [
+                    $row(0, 'series', $entity('Q8337'), 'Harry Potter', '2'),
+                    $row(0, 'series', $entity('Q5'), 'Q5'),
+                    $row(0, 'title', 'Harry Potter and the Chamber of Secrets'),
+                    $row(0, 'language', 'en'),
+                    $row(0, 'date', '1998-07-02T00:00:00Z'),
+                    $row(0, 'genre', $entity('Q6'), 'fantasy'),
+                    $row(0, 'genre', $entity('Q7'), 'kinderliteratuur'),
+                    $row(0, 'award', $entity('Q8'), 'Nestlé Smarties Book Prize'),
+                    $row(0, 'nlwiki', 'https://nl.wikipedia.org/wiki/Harry_Potter_en_de_Geheime_Kamer'),
+                    $row(0, 'enwiki', 'https://en.wikipedia.org/wiki/Harry_Potter_and_the_Chamber_of_Secrets'),
+                ];
+                if (str_contains($url, 'wd:Q1 1')) {
+                    $details[] = $row(1, 'title', 'Harry Potter en de geheime kamer');
+                    $details[] = $row(1, 'translator', $entity('Q9'), 'Wiebe Buddingh\'');
+                }
+                return $rows($details);
+            }
+            return null;
+        };
+    }
+
+    public function testWikidataByIsbnFindsTheWorkAndTheTranslation(): void
+    {
+        $asked = [];
+        $found = (new Wikidata($this->fakeWikidata($asked)))->find('9789076174082', 'Harry Potter en de geheime kamer', 'J.K. Rowling');
+        self::assertSame([
+            'series' => 'Harry Potter', 'series_number' => 2.0,
+            'original_title' => 'Harry Potter and the Chamber of Secrets', 'original_language' => 'en',
+            'first_published' => 1998, 'genre' => 'fantasy, kinderliteratuur', 'translator' => "Wiebe Buddingh'",
+            'awards' => 'Nestlé Smarties Book Prize',
+            'description' => 'Harry Potter en de Geheime Kamer is het tweede boek.', 'description_language' => 'nl',
+        ], $found);
+        self::assertCount(3, $asked, 'ISBN, details, Wikipedia');
+        self::assertStringEndsWith('/page/summary/Harry_Potter_en_de_Geheime_Kamer', $asked[2]);
     }
 
     public function testWikidataFallsBackToTitleAndAuthor(): void
     {
-        $hit = static fn (string $item, string $name, string $author, string $series, ?string $ordinal) => [
-            'item' => ['value' => "http://www.wikidata.org/entity/{$item}"], 'name' => ['value' => $name],
-            'authorName' => ['value' => $author], 'seriesLabel' => ['value' => $series],
-        ] + ($ordinal !== null ? ['ordinal' => ['value' => $ordinal]] : []);
-        $answer = json_encode(['results' => ['bindings' => [
-            $hit('Q43361', "Harry Potter and the Philosopher's Stone", 'J. K. Rowling', 'Harry Potter', '1'),
-            $hit('Q47209', 'Harry Potter and the Chamber of Secrets', 'J. K. Rowling', 'Harry Potter', '2'),
-            $hit('Q47209', 'Harry Potter en de Geheime Kamer', 'J. K. Rowling', 'Harry Potter', '2'),
-            $hit('Q99999', 'De geheime kamer', 'Iemand Anders', 'Spannende reeks', '7'),
-        ]]]);
         $asked = [];
-        $get = static function (string $url) use (&$asked, $answer): ?string {
-            $asked[] = urldecode($url);
-            return str_contains(urldecode($url), 'mwapi') ? $answer : '{"results":{"bindings":[]}}';
-        };
-        $wikidata = new Wikidata(\Closure::fromCallable($get));
-
+        $wikidata = new Wikidata($this->fakeWikidata($asked));
         $found = $wikidata->find('9781338878936', 'Harry Potter and the Chamber of Secrets', 'J.K. Rowling');
-        self::assertSame(['series' => 'Harry Potter', 'series_number' => 2.0], $found);
-        self::assertCount(2, $asked, 'first by ISBN, then by title');
-        self::assertStringContainsString('harry potter and the chamber of secrets haswbstatement:P179', $asked[1]);
-
-        // A Dutch translation by its Dutch title; a subtitle doesn't get in the way.
-        self::assertSame(2.0, $wikidata->find('9789076174082', 'Harry Potter en de geheime kamer: deel 2', 'Rowling, J.K.')['series_number']);
+        self::assertSame(['Harry Potter', 2.0, null, null], [$found['series'], $found['series_number'], $found['original_title'] ?? null, $found['translator'] ?? null],
+            'the same title is no "original title"; no edition, so no translator');
+        self::assertStringContainsString('harry potter and the chamber of secrets haswbstatement:P50', $asked[1]);
+        // A Dutch title with a subtitle and the author written the other way round.
+        self::assertSame(2.0, $wikidata->find('9789000000001', 'Harry Potter en de geheime kamer: deel 2', 'Rowling, J.K.')['series_number']);
         // Same title, other author: not taken.
-        self::assertNull($wikidata->find('9789000000000', 'De geheime kamer', 'Gerard Reve'));
-        // Nothing to search with.
+        self::assertNull($wikidata->find('9789000000002', 'De geheime kamer', 'Gerard Reve'));
+        // Nothing to search with: only the ISBN is asked.
         $asked = [];
-        self::assertNull($wikidata->find('9789000000000'));
+        self::assertNull($wikidata->find('9789000000003'));
         self::assertCount(1, $asked);
-        // Quotes can't break out of the query.
-        self::assertStringNotContainsString('"x"', Wikidata::titleQuery('Een "x" boek'));
+        self::assertNull(Wikidata::parseSummary('{"type":"disambiguation","extract":"Kan verwijzen naar"}'));
+        self::assertNull(Wikidata::parseDetails('<html>Too many requests'));
     }
 
-        public function testSeriesIsFilledInFromWikidata(): void
+    public function testDetailsAreMergedAndFilledIn(): void
     {
-        $config = $this->config(['METADATA_SOURCES' => 'kb,wikidata']);
         $asked = [];
-        $info = (new Catalog($config, $this->fakeGet($asked)))->lookup('9789023417069');
-        self::assertSame(['kb', 'wikidata'], $info['sources']);
-        self::assertSame(['Winterverhalen', 2.0], [$info['series'], $info['series_number']]);
+        $kb = $this->fakeGet($asked);
+        $wikidata = $this->fakeWikidata($asked);
+        $get = static fn (string $url) => str_starts_with($url, 'https://jsru.kb.nl/') ? $kb($url) : $wikidata($url);
+        $hardcover = json_encode(['data' => ['editions' => [[
+            'title' => 'De avonden', 'pages' => 318, 'release_date' => '2009-01-01',
+            'book' => [
+                'title' => 'De avonden', 'description' => 'An English blurb.', 'release_year' => 1947,
+                'cached_tags' => ['Genre' => [['tag' => 'Classics'], ['tag' => 'Literary Fiction']]],
+                'book_series' => [['position' => 1, 'series' => ['name' => 'Reve-reeks']]],
+                'contributions' => [['contribution' => null, 'author' => ['name' => 'Gerard Reve']], ['contribution' => 'Translator', 'author' => ['name' => 'Sam Garrett']]],
+            ],
+        ]]]]);
+        $posted = [];
+        $post = static function (string $url, string $body, array $headers) use (&$posted, $hardcover): ?string {
+            $posted[] = [$url, json_decode($body, true), $headers];
+            return $hardcover;
+        };
+        $config = $this->config(['METADATA_SOURCES' => 'kb,hardcover,wikidata', 'HARDCOVER_TOKEN' => 'abc']);
+        $info = (new Catalog($config, $get, $post))->lookup('9789023417069');
+        self::assertSame(['kb', 'hardcover'], $info['sources'], 'Wikidata finds nothing for De avonden');
+        self::assertSame(['Bearer abc'], [substr($posted[0][2][0], strlen('Authorization: '))]);
+        self::assertSame(['9789023417069', '9023417062'], $posted[0][1]['variables']['isbns']);
+        self::assertSame([319, 'Reve-reeks', 1.0, 'Classics, Literary Fiction', 'Sam Garrett', 1947, 'An English blurb.'],
+            [$info['pages'], $info['series'], $info['series_number'], $info['genre'], $info['translator'], $info['first_published'], $info['description']]);
 
-        $fresh = $this->book('De avonden', ['isbn' => '9789023417069']);
-        self::assertContains('serie', $this->app->books->fillFromCatalog($this->app->books->find($fresh), $info));
-        $book = $this->app->books->find($fresh);
-        self::assertSame(['Winterverhalen', 2.0], [$book['series'], (float) $book['series_number']]);
+        // Without a token Hardcover isn't asked at all.
+        $posted = [];
+        (new Catalog($this->config(['METADATA_SOURCES' => 'hardcover']), $get, $post))->lookup('9789023417069');
+        self::assertSame([], $posted);
 
-        // A series of your own stays, and no number from another series is added to it.
-        $own = $this->book('De avonden', ['isbn' => '9789023417069', 'series' => 'Mijn reeks', 'allow_duplicate' => 1]);
-        $filled = $this->app->books->fillFromCatalog($this->app->books->find($own), $info);
-        self::assertNotContains('serie', $filled);
-        self::assertNotContains('deel', $filled);
-        self::assertSame(['Mijn reeks', null], [$this->app->books->find($own)['series'], $this->app->books->find($own)['series_number']]);
+        // A Dutch description from Wikipedia wins over the English one; the numbers stay with their series.
+        $info = (new Catalog($this->config(['METADATA_SOURCES' => 'hardcover,wikidata', 'HARDCOVER_TOKEN' => 'abc']), $get, static fn () => json_encode(['data' => ['editions' => [[
+            'title' => 'Harry Potter en de geheime kamer', 'book' => ['description' => 'English.', 'book_series' => [['position' => 7]],
+            'contributions' => [['author' => ['name' => 'J.K. Rowling']]]],
+        ]]]])))->lookup('9789076174082');
+        self::assertSame(['Harry Potter en de Geheime Kamer is het tweede boek.', 'Harry Potter', 2.0, 'en'],
+            [$info['description'], $info['series'], $info['series_number'], $info['original_language']]);
+
+        $id = $this->book('Harry Potter en de geheime kamer', ['isbn' => '9789076174082', 'genre' => 'jeugd']);
+        $filled = $this->app->books->fillFromCatalog($this->app->books->find($id), $info);
+        self::assertSame(['auteur', 'serie', 'deel', 'beschrijving', 'oorspronkelijke titel', 'oorspronkelijke taal', 'vertaler', 'eerste verschijning', 'prijzen'], $filled);
+        $book = $this->app->books->find($id);
+        self::assertSame(['jeugd', 'en', 1998, "Wiebe Buddingh'"], [$book['genre'], $book['original_language'], $book['first_published'], $book['translator']]);
+
+        $page = $this->app->handle(new Request('GET', "/books/{$id}"))->body;
+        self::assertStringContainsString('<dd>Engels</dd>', $page);
+        self::assertStringContainsString('is het tweede boek.', $page);
+        self::assertStringContainsString('Wiebe Buddingh&#039;', $page);
+        self::assertSame([$id], array_column($this->app->books->list(null, 'Buddingh'), 'id'), 'search finds the translator');
+        self::assertSame([$id], array_column($this->app->books->list(null, 'jeugd'), 'id'), 'and the genre');
+    }
+
+    public function testDetailsCanBeEditedAndAreLeftAloneByOlderApps(): void
+    {
+        $id = $this->book('De avonden');
+        $this->post("/books/{$id}/edit", [
+            'title' => 'De avonden', 'status' => 'read', 'genre' => 'roman, Roman, klassieker', 'first_published' => '1947',
+            'original_language' => 'Nederlands', 'description' => 'Frits van Egters.', 'translator' => '', 'original_title' => '', 'awards' => '',
+        ]);
+        $book = $this->app->books->find($id);
+        self::assertSame(['roman, klassieker', 1947, 'nl', 'Frits van Egters.', null], [$book['genre'], $book['first_published'], $book['original_language'], $book['description'], $book['translator']]);
+        self::assertSame(422, $this->post("/books/{$id}/edit", ['title' => 'De avonden', 'first_published' => 'vroeger'])->status);
+
+        // The app doesn't send these fields when saving an edit: they stay.
+        $this->app->books->update($id, Books::validate(['title' => 'De avonden', 'status' => 'read', 'publisher' => 'De Bezige Bij']));
+        self::assertSame('Frits van Egters.', $this->app->books->find($id)['description']);
+    }
+
+    public function testStatsPerLanguageAndGenre(): void
+    {
+        $a = $this->book('Een', ['genre' => 'fantasy, jeugd']);
+        $b = $this->book('Twee', ['genre' => 'Fantasy']);
+        $c = $this->book('Drie');
+        $this->db->exec("UPDATE books SET language = 'nl', original_language = 'en' WHERE id IN ({$a}, {$b})");
+        $this->db->exec("UPDATE books SET language = 'nl' WHERE id = {$c}");
+        self::assertSame([
+            ['language' => 'en', 'books' => 2, 'translated' => 2],
+            ['language' => 'nl', 'books' => 1, 'translated' => 0],
+        ], $this->app->books->readByLanguage());
+        self::assertSame(['fantasy' => 2, 'jeugd' => 1], $this->app->books->topGenres());
+        $page = $this->app->handle(new Request('GET', '/stats'))->body;
+        self::assertStringContainsString('Engels: 2 boeken', $page);
+        self::assertStringContainsString('2 van de 3 boeken (67%) las je in vertaling.', $page);
     }
 
     public function testFillingInNeverOverwrites(): void

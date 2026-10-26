@@ -104,3 +104,5 @@ progress { accent-color: var(--accent); width: 140px; height: 10px; vertical-ali
 .badge.lent { background: #dbe7ff; color: #1d3a7a; }
 .loan-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .loan-row:last-child { border-bottom: 0; }
+.description { margin: 12px 0; line-height: 1.5; }
+details.wide > summary { cursor: pointer; color: var(--accent); margin: 4px 0 8px; }
