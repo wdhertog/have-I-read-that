@@ -19,6 +19,7 @@ final class App
     public readonly Tooter $tooter;
     public readonly Mastodon $mastodon;
     public readonly View $view;
+    public readonly YearReview $yearReview;
     private Router $router;
 
     public function __construct(public readonly Config $config, PDO $db, public readonly string $basePath = '')
@@ -27,6 +28,7 @@ final class App
         $this->auth = new Auth($config, $db);
         $this->mastodon = Mastodon::fromConfig($config);
         $this->tooter = new Tooter($this->books, $this->mastodon, $config);
+        $this->yearReview = new YearReview($this->books, $this->mastodon);
         $this->view = new View(dirname(__DIR__) . '/templates', $basePath);
         $this->router = new Router();
 
@@ -56,6 +58,10 @@ final class App
         $r->add('POST', '/reads/{id}/delete', [$web, 'deleteRead']);
         $r->add('GET', '/stats', [$web, 'stats']);
         $r->add('POST', '/stats/goal', [$web, 'setGoal']);
+        $r->add('POST', '/stats/year-review', [$web, 'postYearReview']);
+        $r->add('GET', '/stats/collage/{year}', [$web, 'collage']);
+        $r->add('GET', '/boek/{id}', [$shelf, 'book']);
+        $r->add('GET', '/feed.xml', [$shelf, 'feed']);
         $r->add('GET', '/export.csv', [$web, 'exportCsv']);
         $r->add('GET', '/export.json', [$web, 'exportJson']);
         $r->add('GET', '/import', [$web, 'importForm']);
@@ -80,6 +86,27 @@ final class App
         $r->add('POST', '/api/reads/{id}', [$api, 'updateRead']);
         $r->add('POST', '/api/reads/{id}/delete', [$api, 'deleteRead']);
         $r->add('GET', '/api/lookup', [$api, 'lookup']);
+    }
+
+    /** Pages anyone may open: the login form, and the public shelf, book pages and feed. */
+    private static function isPublicPath(string $path): bool
+    {
+        return in_array($path, ['/', '/login', '/feed.xml'], true) || preg_match('#^/boek/\d+$#', $path) === 1;
+    }
+
+    /**
+     * Absolute URL for links that leave the site (feed, previews, toots). APP_URL wins;
+     * otherwise the request's own host, if it looks like a host name.
+     */
+    public function absoluteUrl(Request $request, string $path): string
+    {
+        $base = rtrim($this->config->get('APP_URL'), '/');
+        if ($base === '') {
+            $host = $request->header('host') ?? '';
+            $host = preg_match('/^[A-Za-z0-9.-]+(:\d+)?$/', $host) ? $host : 'localhost';
+            $base = ($request->https ? 'https' : 'http') . '://' . $host . $this->basePath;
+        }
+        return $base . $path;
     }
 
     public function publicPage(): bool
@@ -122,8 +149,8 @@ final class App
             'Content-Security-Policy' => "default-src 'self'; img-src 'self' https:; object-src 'none'; "
                 . "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
         ];
-        // Only the public page may be cached; everything else can contain private data or tokens.
-        if ($request->path !== '/' || $this->auth->loggedIn()) {
+        // Only the public pages may be cached; everything else can contain private data or tokens.
+        if (!self::isPublicPath($request->path) || $request->path === '/login' || $this->auth->loggedIn()) {
             $headers['Cache-Control'] = 'no-store';
         }
         if ($request->https) {
@@ -141,7 +168,7 @@ final class App
                 if (!$this->auth->checkToken($request->header('authorization'))) {
                     return Response::json(['error' => 'Ongeldig of ontbrekend token.'], 401);
                 }
-            } elseif (!in_array($request->path, ['/', '/login'], true) && !$this->auth->loggedIn()) {
+            } elseif (!self::isPublicPath($request->path) && !$this->auth->loggedIn()) {
                 return $request->method === 'GET'
                     ? Response::redirect($this->url('/login', ['next' => $request->path]))
                     : new Response('Niet ingelogd', 403);

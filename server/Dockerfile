@@ -4,7 +4,10 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --ignore-platform-reqs
 
 FROM php:8.3-apache
-RUN docker-php-ext-install pdo_mysql \
+RUN apt-get update && apt-get install -y --no-install-recommends libjpeg62-turbo-dev libpng-dev \
+ && rm -rf /var/lib/apt/lists/* \
+ && docker-php-ext-configure gd --with-jpeg \
+ && docker-php-ext-install pdo_mysql gd \
  && a2enmod rewrite \
  && sed -ri 's#/var/www/html#/var/www/html/public#g' /etc/apache2/sites-available/000-default.conf \
  && printf '<Directory /var/www/html/public>\n    AllowOverride All\n</Directory>\n' > /etc/apache2/conf-enabled/app.conf \

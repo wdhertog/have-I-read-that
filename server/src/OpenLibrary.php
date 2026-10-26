@@ -9,6 +9,8 @@ namespace App;
  */
 final class OpenLibrary
 {
+    private const MAX_COVER_BYTES = 5 * 1024 * 1024;
+
     /** @return list<array{title: string, author: string, isbn: string, pages: ?int, year: ?int}> */
     public static function search(string $query, int $limit = 10): array
     {
@@ -24,6 +26,47 @@ final class OpenLibrary
         }
         // Keep the scanned ISBN rather than whichever edition Open Library lists first.
         return ['isbn' => $isbn] + $results[0];
+    }
+
+    /**
+     * Download a cover to attach to a toot or put in a collage. Null when there is none
+     * or it can't be fetched; never throws.
+     *
+     * @return array{bytes: string, mime: string}|null
+     */
+    public static function fetchCover(?string $isbn, string $size = 'L'): ?array
+    {
+        $url = self::coverUrl($isbn, $size);
+        if ($url === null) {
+            return null;
+        }
+        $bytes = '';
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_FOLLOWLOCATION => true, // covers.openlibrary.org redirects to archive.org
+            CURLOPT_MAXREDIRS => 3,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_USERAGENT => 'have-i-read-that',
+            // Stop reading once it gets bigger than any cover should be.
+            CURLOPT_WRITEFUNCTION => static function ($ch, string $chunk) use (&$bytes): int {
+                $bytes .= $chunk;
+                return strlen($bytes) > self::MAX_COVER_BYTES ? 0 : strlen($chunk);
+            },
+        ]);
+        $ok = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        if ($ok === false || $code !== 200) {
+            return null;
+        }
+        $info = @getimagesizefromstring($bytes);
+        $mime = $info['mime'] ?? '';
+        if (!in_array($mime, ['image/jpeg', 'image/png'], true) || $info[0] < 10 || $info[1] < 10) {
+            return null; // not an image, or Open Library's 1x1 placeholder
+        }
+        return ['bytes' => $bytes, 'mime' => $mime];
     }
 
     public static function coverUrl(?string $isbn, string $size = 'M'): ?string

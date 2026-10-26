@@ -52,19 +52,47 @@ final class Mastodon
     }
 
     /** Post a status and return its public URL. */
-    public function post(string $text, ?string $idempotencyKey = null): ?string
+    /** @param list<string> $mediaIds From uploadMedia(). */
+    public function post(string $text, ?string $idempotencyKey = null, array $mediaIds = []): ?string
     {
         $headers = $idempotencyKey ? ['Idempotency-Key: ' . $idempotencyKey] : [];
-        $status = $this->request('POST', '/api/v1/statuses', ['status' => $text, 'visibility' => $this->visibility], $headers);
+        $body = http_build_query(['status' => $text, 'visibility' => $this->visibility]);
+        // Rails wants media_ids[]=…, not the media_ids[0]=… http_build_query would make.
+        foreach ($mediaIds as $id) {
+            $body .= '&media_ids%5B%5D=' . rawurlencode($id);
+        }
+        $status = $this->request('POST', '/api/v1/statuses', $body, $headers);
         return $status['url'] ?? $status['uri'] ?? null;
     }
 
     /**
-     * @param array<string, string>|null $data
+     * Upload an image with its alt text and return the media id. Waits a few seconds
+     * when Mastodon processes it in the background.
+     */
+    public function uploadMedia(string $bytes, string $mime, string $description): string
+    {
+        $file = new \CURLStringFile($bytes, $mime === 'image/png' ? 'image.png' : 'image.jpg', $mime);
+        $media = $this->request('POST', '/api/v2/media', [
+            'file' => $file,
+            'description' => mb_substr($description, 0, 1500),
+        ], [], 60);
+        $id = (string) ($media['id'] ?? '');
+        if ($id === '') {
+            throw new MastodonException('Mastodon gaf geen media-id terug.');
+        }
+        for ($i = 0; ($media['url'] ?? null) === null && $i < 10; $i++) {
+            usleep(500_000);
+            $media = $this->request('GET', '/api/v1/media/' . rawurlencode($id));
+        }
+        return $id;
+    }
+
+    /**
+     * @param array<string, mixed>|string|null $data A form body, or an array for multipart.
      * @param list<string> $headers
      * @return array<string, mixed>
      */
-    private function request(string $method, string $path, ?array $data = null, array $headers = []): array
+    private function request(string $method, string $path, array|string|null $data = null, array $headers = [], int $timeout = 15): array
     {
         if (!$this->configured()) {
             throw new MastodonException('Mastodon is niet geconfigureerd.');
@@ -73,12 +101,12 @@ final class Mastodon
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 15,
+            CURLOPT_TIMEOUT => $timeout,
             CURLOPT_USERAGENT => 'have-i-read-that',
             CURLOPT_HTTPHEADER => array_merge(['Authorization: Bearer ' . $this->token], $headers),
         ]);
         if ($data !== null) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
         }
         $body = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
@@ -128,6 +156,7 @@ final class Mastodon
             '{percent}' => isset($book['progress_percent']) ? (string) $book['progress_percent'] : '',
             '{page}' => isset($book['progress_page']) ? (string) $book['progress_page'] : '',
             '{pages}' => isset($book['pages']) ? (string) $book['pages'] : '',
+            '{url}' => (string) ($book['url'] ?? ''),
         ];
         $render = static function (string $reviewText) use ($template, $fields): string {
             $text = strtr($template, $fields + ['{review}' => $reviewText]);

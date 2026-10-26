@@ -7,6 +7,18 @@
   <title><?= $v->e(($title ?? null) ? $title . ' · ' : '') ?>Have I read that?</title>
   <link rel="stylesheet" href="<?= $v->url('/assets/style.css') ?>">
   <script src="<?= $v->url('/assets/app.js') ?>" defer></script>
+  <?php if ($publicPage): ?>
+  <link rel="alternate" type="application/rss+xml" title="<?= $v->e($publicTitle) ?>" href="<?= $v->url('/feed.xml') ?>">
+  <?php endif ?>
+  <?php if (!empty($meta)): ?>
+  <meta property="og:type" content="book">
+  <meta property="og:title" content="<?= $v->e($meta['title']) ?>">
+  <meta property="og:description" content="<?= $v->e($meta['description']) ?>">
+  <meta property="og:url" content="<?= $v->e($meta['url']) ?>">
+  <?php if ($meta['image']): ?><meta property="og:image" content="<?= $v->e($meta['image']) ?>"><?php endif ?>
+  <meta name="description" content="<?= $v->e($meta['description']) ?>">
+  <meta name="twitter:card" content="summary">
+  <?php endif ?>
 </head>
 <body>
   <?php if ($loggedIn): ?>
