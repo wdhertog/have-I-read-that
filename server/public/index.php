@@ -54,15 +54,19 @@ ini_set('session.gc_maxlifetime', (string) (60 * 60 * 24 * 30));
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
 
+$step = 'connect';
 try {
     $db = Database::connect($config);
+    $step = 'migrate';
     // Creates or updates the tables, so hosting without SSH needs no manual step.
     Database::migrateIfNeeded($db, dirname(__DIR__) . '/migrations');
 } catch (PDOException $e) {
     error_log((string) $e);
     http_response_code(500);
     header('Content-Type: text/plain; charset=utf-8');
-    echo "Kan de database niet gebruiken. Controleer DB_HOST, DB_NAME, DB_USER en DB_PASSWORD in .env.\n";
+    echo $step === 'connect'
+        ? "Kan geen verbinding maken met de database. Controleer DB_HOST, DB_NAME, DB_USER en DB_PASSWORD in .env.\n"
+        : "Verbonden met de database, maar het aanmaken of bijwerken van de tabellen mislukte.\n";
     if ($config->bool('APP_DEBUG')) {
         echo "\n" . $e->getMessage() . "\n";
     }

@@ -75,6 +75,20 @@ final class AppTest extends TestCase
         return [$response->status, json_decode($response->body, true)];
     }
 
+    public function testMigratingTablesThatWereCreatedByHand(): void
+    {
+        // As if 001_init.sql had been run in phpMyAdmin: tables and data, but no bookkeeping.
+        $this->db->exec("INSERT INTO books (title, status, format, date_added) VALUES ('Bestaand', 'read', 'Digital', CURDATE())");
+        $this->db->exec('DROP TABLE schema_migrations');
+        $this->db->exec('DROP TABLE login_attempts');
+
+        Database::migrateIfNeeded($this->db, dirname(__DIR__) . '/migrations');
+
+        self::assertSame(['Bestaand', 'ebook'], $this->db->query('SELECT title, format FROM books')->fetch(PDO::FETCH_NUM));
+        self::assertSame(3, (int) $this->db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn());
+        self::assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM login_attempts')->fetchColumn());
+    }
+
     public function testLoginRequired(): void
     {
         self::assertStringContainsString('/login', $this->web('GET', '/books')->headers['Location']);
