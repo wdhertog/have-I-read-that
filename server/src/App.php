@@ -73,6 +73,7 @@ final class App
         $r->add('GET', '/export.json', [$web, 'exportJson']);
         $r->add('GET', '/import', [$web, 'importForm']);
         $r->add('POST', '/import', [$web, 'import']);
+        $r->add('POST', '/import/confirm', [$web, 'confirmImport']);
         $r->add('GET', '/settings', [$web, 'settings']);
         $r->add('POST', '/settings/test', [$web, 'testMastodon']);
         $r->add('POST', '/settings/tokens', [$web, 'createToken']);

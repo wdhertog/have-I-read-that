@@ -60,6 +60,14 @@ final class AppTest extends TestCase
         return $this->app->handle(new Request($method, $path, [], $post, $files));
     }
 
+    /** Upload a CSV and confirm the import; returns the result page. */
+    private function importFile(string $path): Response
+    {
+        $preview = $this->web('POST', '/import', [], ['file' => ['tmp_name' => $path, 'error' => UPLOAD_ERR_OK]]);
+        self::assertStringContainsString('Bevestigen en importeren', $preview->body);
+        return $this->web('POST', '/import/confirm');
+    }
+
     private function login(): void
     {
         self::assertSame(302, $this->web('POST', '/login', ['password' => 'geheim'])->status);
@@ -162,7 +170,7 @@ final class AppTest extends TestCase
         $csv = "Title,Authors,ISBN/UID,Format,Read Status\n" . str_repeat('t', 600) . ",A,,Digital,read\nB,B,,Kleitablet,read\n";
         $file = tempnam(sys_get_temp_dir(), 'sg');
         file_put_contents($file, $csv);
-        $this->web('POST', '/import', [], ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK]]);
+        $this->importFile($file);
         unlink($file);
         $rows = $this->db->query('SELECT CHAR_LENGTH(title) AS len, format FROM books ORDER BY id')->fetchAll();
         self::assertSame([['len' => 500, 'format' => 'ebook'], ['len' => 1, 'format' => null]], $rows);
@@ -223,8 +231,10 @@ final class AppTest extends TestCase
         file_put_contents($file, Fixtures::STORYGRAPH_CSV);
         $upload = ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK, 'name' => 'sg.csv']];
 
-        self::assertStringContainsString('4 boeken geïmporteerd', $this->web('POST', '/import', [], $upload)->body);
-        self::assertStringContainsString('0 boeken geïmporteerd, 4 overgeslagen', $this->web('POST', '/import', [], $upload)->body);
+        self::assertStringContainsString('<strong>4</strong> nieuwe boeken', $this->web('POST', '/import', [], $upload)->body);
+        self::assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM books')->fetchColumn(), 'the preview saves nothing');
+        self::assertStringContainsString('4 boeken toegevoegd', $this->web('POST', '/import/confirm')->body);
+        self::assertStringContainsString('0 boeken toegevoegd, 0 aangevuld, 4 ongewijzigd', $this->importFile($file)->body);
         self::assertSame(4, (int) $this->db->query('SELECT COUNT(*) FROM books')->fetchColumn());
         self::assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM posts')->fetchColumn());
 
@@ -334,7 +344,7 @@ final class AppTest extends TestCase
         $this->login();
         $file = tempnam(sys_get_temp_dir(), 'sg');
         file_put_contents($file, Fixtures::STORYGRAPH_CSV);
-        $this->web('POST', '/import', [], ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK]]);
+        $this->importFile($file);
         $this->web('POST', '/books/add', ['title' => '=HYPERLINK("x")', 'author' => '+31 auteur', 'status' => 'to-read']);
 
         $csv = $this->web('GET', '/export.csv');
@@ -348,7 +358,7 @@ final class AppTest extends TestCase
         $reads = $this->db->query('SELECT b.title, r.started, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id ORDER BY 1, 2, 3')->fetchAll();
         $this->db->exec('DELETE FROM books');
         file_put_contents($file, $csv->body);
-        $this->web('POST', '/import', [], ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK]]);
+        $this->importFile($file);
         unlink($file);
         self::assertSame($before, $this->db->query('SELECT title, author, status, rating, format FROM books ORDER BY title')->fetchAll());
         self::assertSame($reads, $this->db->query('SELECT b.title, r.started, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id ORDER BY 1, 2, 3')->fetchAll());
@@ -396,5 +406,53 @@ final class AppTest extends TestCase
         self::assertSame(200, $status);
         [$status] = $this->api('GET', "/api/books/{$id}", null, $token);
         self::assertSame(404, $status);
+    }
+
+    public function testReimportFillsInWhatsMissing(): void
+    {
+        $this->login();
+        // Situation: imported with an older version that didn't keep everything, then edited.
+        $this->db->exec("INSERT INTO books (title, author, isbn, status, rating, review, source, date_added)
+                         VALUES ('De avonden', 'Gerard Reve', NULL, 'read', 3.0, 'Mijn eigen recensie', 'storygraph', '2023-01-02')");
+        $id = (int) $this->db->lastInsertId();
+        $this->db->exec("INSERT INTO `reads` (book_id, started, finished) VALUES ({$id}, '2023-01-05', '2023-01-20')");
+
+        $csv = "Title,Authors,Contributors,ISBN/UID,Format,Read Status,Date Added,Last Date Read,Dates Read,Read Count,Moods,Pace,"
+            . "Character- or Plot-Driven?,Strong Character Development?,Loveable Characters?,Diverse Characters?,Flawed Characters?,"
+            . "Star Rating,Review,Content Warnings,Content Warning Description,Tags,Owned?,Pages,Shelf\n"
+            . "De avonden,Gerard Reve,Vertaald door Niemand,9789023417069,paperback,read,2023/01/02,2024/03/09,"
+            . "\"2023/01/05-2023/01/20, 2024/03/01-2024/03/09\",2,reflective,slow,Character,Yes,No,No,Yes,4.25,StoryGraph-recensie,"
+            . "Grief,Over verlies,klassiekers,Yes,320,favorieten\n";
+        $file = tempnam(sys_get_temp_dir(), 'sg');
+        file_put_contents($file, $csv);
+
+        $preview = $this->web('POST', '/import', [], ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK]])->body;
+        self::assertStringContainsString('<strong>0</strong> nieuwe boeken, <strong>1</strong> bestaande boeken aangevuld', $preview);
+        self::assertStringContainsString("ISBN, formaat, pagina&#039;s, tags, moods, medewerkers", $preview);
+        self::assertStringContainsString('tempo', $preview);
+        self::assertStringContainsString('1 leesmoment', $preview);
+        self::assertNull($this->db->query("SELECT isbn FROM books WHERE id = {$id}")->fetchColumn(), 'the preview saves nothing');
+
+        $this->web('POST', '/import/confirm');
+        unlink($file);
+        $book = $this->app->books->find($id);
+        self::assertSame(3.0, $book['rating'], 'your own rating stays');
+        self::assertSame('Mijn eigen recensie', $book['review'], 'your own review stays');
+        self::assertSame(['9789023417069', 'paperback', 320, 'reflective', 'Vertaald door Niemand', 'Grief', 'Over verlies', true],
+            [$book['isbn'], $book['format'], $book['pages'], $book['moods'], $book['contributors'], $book['content_warnings'],
+             $book['content_warning_description'], $book['owned']]);
+        self::assertSame(['Pace' => 'slow', 'Character- or Plot-Driven?' => 'Character', 'Strong Character Development?' => 'Yes',
+            'Loveable Characters?' => 'No', 'Diverse Characters?' => 'No', 'Flawed Characters?' => 'Yes', 'Shelf' => 'favorieten'], $book['details']);
+        self::assertCount(2, $this->app->books->reads($id));
+        self::assertSame(1, (int) $this->db->query('SELECT COUNT(*) FROM books')->fetchColumn());
+
+        $page = $this->web('GET', "/books/{$id}")->body;
+        self::assertStringContainsString('Personages met gebreken?', $page);
+        self::assertStringContainsString('Over verlies', $page);
+
+        // The export carries it all back out.
+        $export = $this->web('GET', '/export.csv')->body;
+        self::assertStringContainsString('Vertaald door Niemand', $export);
+        self::assertStringContainsString(',slow,Character,Yes,No,No,Yes,', $export);
     }
 }

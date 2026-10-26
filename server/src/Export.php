@@ -50,6 +50,14 @@ final class Export
             $row['Dates Read'] = implode(', ', $dates);
             $row['Read Count'] = (string) count($finished);
             $row['Moods'] = (string) $book['moods'];
+            $row['Contributors'] = (string) ($book['contributors'] ?? '');
+            $row['Content Warnings'] = (string) ($book['content_warnings'] ?? '');
+            $row['Content Warning Description'] = (string) ($book['content_warning_description'] ?? '');
+            foreach ($book['details'] ?? [] as $name => $value) {
+                if (array_key_exists($name, $row) && $row[$name] === '') {
+                    $row[$name] = (string) $value;
+                }
+            }
             $row['Star Rating'] = $book['rating'] !== null ? Mastodon::formatRating($book['rating']) : '';
             $row['Review'] = (string) $book['review'];
             $row['Tags'] = (string) $book['tags'];
