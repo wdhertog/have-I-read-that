@@ -44,6 +44,23 @@ boeken.example.nl {
 
 Backups: `docker compose exec db mariadb-dump -u books -p books > backup.sql`.
 
+### Op webhosting met `public_html` (DirectAdmin, cPanel, Plesk)
+
+Composer en SSH zijn niet nodig.
+
+1. Maak in het hostingpaneel een MySQL-database met een gebruiker aan.
+2. Upload de **inhoud** van de map `server/` naar de `public_html` van je
+   (sub)domein, dus `public_html/public`, `public_html/src`, `public_html/.htaccess`, enzovoort.
+   Vergeet het verborgen bestand `.htaccess` niet.
+3. Kopieer `.env.example` naar `.env` in `public_html` en vul het wachtwoord en
+   de databasegegevens in (`DB_HOST` is meestal `localhost`).
+4. Zet PHP in het paneel op 8.1 of nieuwer.
+5. Open de site: de database-tabellen worden bij het eerste bezoek aangemaakt.
+
+De `.htaccess` in de hoofdmap stuurt alles naar `public/`, zodat `.env` en de
+code niet via de browser op te vragen zijn. Krijg je een foutmelding, zet dan
+tijdelijk `APP_DEBUG=true` in `.env` om de oorzaak te zien.
+
 ### Zonder Docker (nginx/Apache + PHP-FPM + MySQL)
 
 Vereist PHP 8.1+ met `pdo_mysql`, `curl` en `mbstring`, en Composer.
@@ -53,7 +70,7 @@ cd server
 composer install --no-dev --optimize-autoloader
 cp .env.example .env      # vul je databasegegevens in
 mysql -e "CREATE DATABASE books CHARACTER SET utf8mb4; CREATE USER 'books'@'localhost' IDENTIFIED BY '...'; GRANT ALL ON books.* TO 'books'@'localhost';"
-php bin/migrate.php       # na elke update opnieuw draaien
+php bin/migrate.php       # optioneel: gebeurt anders bij het eerste bezoek
 ```
 
 Laat de webserver naar `server/public` wijzen en stuur alle verzoeken die geen

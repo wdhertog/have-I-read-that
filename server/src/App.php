@@ -119,9 +119,10 @@ final class App
             $response = $this->router->dispatch($request);
         } catch (\Throwable $e) {
             error_log((string) $e);
+            $detail = $this->config->bool('APP_DEBUG') ? ' ' . $e->getMessage() : '';
             return $isApi
-                ? Response::json(['error' => 'Interne fout.'], 500)
-                : Response::html('Er ging iets mis. Kijk in de serverlog voor details.', 500);
+                ? Response::json(['error' => 'Interne fout.' . $detail], 500)
+                : Response::html('Er ging iets mis. Kijk in de serverlog voor details.' . htmlspecialchars($detail), 500);
         }
         if ($response === null) {
             return $isApi ? Response::json(['error' => 'Niet gevonden.'], 404) : $this->render('404', [], 404);

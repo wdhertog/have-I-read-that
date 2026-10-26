@@ -7,7 +7,7 @@ declare(strict_types=1);
 use App\Config;
 use App\Database;
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+require dirname(__DIR__) . '/autoload.php';
 
 $config = Config::load(dirname(__DIR__) . '/.env');
 $applied = Database::migrate(Database::connect($config), dirname(__DIR__) . '/migrations');
