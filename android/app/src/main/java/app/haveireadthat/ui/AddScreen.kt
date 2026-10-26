@@ -1,5 +1,12 @@
 package app.haveireadthat.ui
 
+import app.haveireadthat.Shared
+import app.haveireadthat.Repository
+import app.haveireadthat.Outcome
+import app.haveireadthat.LookupResult
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -45,9 +52,12 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
+fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, shared: String? = null) {
     val context = LocalContext.current
+    val repository = remember { Repository(context) }
     val scope = rememberCoroutineScope()
+    var results by remember { mutableStateOf<List<LookupResult>>(emptyList()) }
+    var sharedHandled by rememberSaveable { mutableStateOf(false) }
     var title by rememberSaveable { mutableStateOf("") }
     var author by rememberSaveable { mutableStateOf("") }
     var isbn by rememberSaveable { mutableStateOf("") }
@@ -93,6 +103,41 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
         }
     }
 
+    fun search(terms: String) {
+        busy = true
+        message = "Zoeken naar “$terms”…"
+        scope.launch {
+            try {
+                val response = settings.client().search(terms)
+                results = response.results
+                message = when {
+                    response.results.isNotEmpty() -> "Kies het juiste boek:"
+                    response.error != null -> "Zoeken mislukt: ${response.error}"
+                    else -> "Niets gevonden voor “$terms”; vul het zelf in."
+                }
+                if (response.results.isEmpty() && title.isBlank()) title = terms
+            } catch (e: Exception) {
+                message = "Zoeken mislukt: ${e.message}"
+                if (title.isBlank()) title = terms
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    // Something shared from another app: an ISBN is looked up, anything else searched for.
+    LaunchedEffect(shared) {
+        if (shared == null || sharedHandled) return@LaunchedEffect
+        sharedHandled = true
+        val code = Shared.findIsbn(shared)
+        val terms = Shared.searchTerms(shared)
+        when {
+            code != null -> lookup(code)
+            terms != null -> search(terms)
+            else -> message = "Hier kon ik geen boek in vinden; vul het zelf in."
+        }
+    }
+
     fun scan() {
         val options = GmsBarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8, Barcode.FORMAT_UPC_A)
@@ -110,7 +155,7 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
         duplicateOnSave = false
         scope.launch {
             try {
-                val response = settings.client().create(
+                val outcome = repository.create(
                     NewBook(
                         title = title.trim(),
                         author = author.trim(),
@@ -121,10 +166,20 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
                         allowDuplicate = allowDuplicate,
                     )
                 )
-                response.toot?.takeIf { !it.posted }?.let {
-                    android.widget.Toast.makeText(context, "Niet gepost: ${it.error}", android.widget.Toast.LENGTH_LONG).show()
+                when (outcome) {
+                    is Outcome.Sent -> {
+                        outcome.response.toot?.takeIf { !it.posted }?.let {
+                            android.widget.Toast.makeText(context, "Niet gepost: ${it.error}", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        onOpen(outcome.response.book.id)
+                    }
+                    is Outcome.Queued -> {
+                        android.widget.Toast.makeText(
+                            context, "Opgeslagen op je telefoon; wordt verstuurd zodra je verbinding hebt.", android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                        onOpen(outcome.book.id)
+                    }
                 }
-                onOpen(response.book.id)
             } catch (e: DuplicateException) {
                 message = e.message
                 existingId = e.existing.id
@@ -158,6 +213,32 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
                 Text("📷  Scan ISBN-barcode")
             }
             message?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
+            if (results.isNotEmpty()) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(vertical = 4.dp)) {
+                        results.forEach { result ->
+                            Text(
+                                buildString {
+                                    append(result.title)
+                                    if (result.author.isNotBlank()) append(" — ").append(result.author)
+                                    result.year?.let { append(" ($it)") }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        title = result.title
+                                        author = result.author
+                                        isbn = result.isbn
+                                        pages = result.pages?.toString().orEmpty()
+                                        results = emptyList()
+                                        message = null
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                            )
+                        }
+                    }
+                }
+            }
             existingId?.let { id ->
                 Card(Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

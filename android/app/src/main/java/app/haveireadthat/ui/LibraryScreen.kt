@@ -28,6 +28,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,37 +45,51 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.haveireadthat.Book
+import kotlinx.coroutines.launch
+import app.haveireadthat.Repository
+import app.haveireadthat.LocalState
 import app.haveireadthat.Goal
 import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, onLogout: () -> Unit) {
+    val context = LocalContext.current
+    val repository = remember { Repository(context) }
+    val scope = rememberCoroutineScope()
     var status by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var books by remember { mutableStateOf<List<Book>?>(null) }
+    var state by remember { mutableStateOf(LocalState()) }
+    var offline by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
-    var goal by remember { mutableStateOf<Goal?>(null) }
 
+    // The whole library lives on the phone; filtering and searching happen here, offline too.
     LaunchedEffect(reload) {
-        goal = runCatching { settings.client().me().goal }.getOrNull()
-    }
-
-    LaunchedEffect(status, query, reload) {
-        if (books != null) delay(300) // debounce typing
+        if (books == null) books = repository.state().books.takeIf { it.isNotEmpty() }
         refreshing = true
         try {
-            books = settings.client().books(status, query)
+            val loaded = repository.library()
+            books = loaded.value
+            offline = loaded.offline
             error = null
         } catch (e: Exception) {
             error = e.message ?: "Laden mislukt"
         } finally {
+            state = repository.state()
             refreshing = false
         }
+    }
+
+    val shown = remember(books, status, query) {
+        val q = query.trim().lowercase()
+        books.orEmpty().filter { book ->
+            (status == null || book.status == status) && (q.isEmpty() ||
+                listOfNotNull(book.title, book.author, book.tags, book.isbn).any { it.lowercase().contains(q) })
+        }.sortedWith(compareByDescending<Book> { it.status == "reading" })
     }
 
     Scaffold(
@@ -112,7 +129,26 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
                     FilterChip(selected = status == key, onClick = { status = key }, label = { Text(label) })
                 }
             }
-            goal?.let { GoalLine(it) }
+            if (offline) {
+                Notice("Offline: je ziet de versie van ${state.updatedAt ?: "eerder"}. Wijzigingen worden verstuurd zodra je weer verbinding hebt.")
+            }
+            if (state.queue.isNotEmpty()) {
+                val n = state.queue.size
+                Notice(if (n == 1) "1 wijziging wacht op verbinding." else "$n wijzigingen wachten op verbinding.")
+            }
+            if (state.failures.isNotEmpty()) {
+                Notice(
+                    "Niet gelukt bij het versturen:\n" + state.failures.joinToString("\n"),
+                    error = true,
+                    onDismiss = {
+                        scope.launch {
+                            repository.clearFailures()
+                            state = repository.state()
+                        }
+                    },
+                )
+            }
+            state.goal?.let { GoalLine(it) }
             error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
             }
@@ -122,15 +158,35 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
                 modifier = Modifier.fillMaxSize(),
             ) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
-                    if (books?.isEmpty() == true) {
+                    if (books != null && shown.isEmpty()) {
                         item { Text("Geen boeken gevonden.", modifier = Modifier.padding(16.dp)) }
                     }
-                    items(books.orEmpty(), key = { it.id }) { book ->
+                    items(shown, key = { it.id }) { book ->
                         BookRow(book) { onOpen(book.id) }
                         HorizontalDivider()
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun Notice(text: String, error: Boolean = false, onDismiss: (() -> Unit)? = null) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        if (onDismiss != null) {
+            TextButton(onClick = onDismiss) { Text("Wissen") }
         }
     }
 }

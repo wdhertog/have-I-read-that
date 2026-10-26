@@ -203,6 +203,18 @@ services, dus zonder camera-toestemming), boeken starten en uitlezen met
 beoordeling en recensie (en daarbij naar Mastodon posten), en je bibliotheek
 doorbladeren en doorzoeken.
 
+**Delen naar de app:** deel vanuit je browser of een andere app een boekpagina
+(bijv. van bol.com, Goodreads of een boekhandel). De app zoekt het ISBN in de link of
+tekst op, of zoekt anders op de titel; daarna kies je het juiste boek.
+
+**Widget:** houd je startscherm ingedrukt → *Widgets* → *Have I read that?*. Je ziet
+wat je nu leest, met voortgang, en je leesdoel.
+
+**Offline:** je hele bibliotheek staat op je telefoon, ook zoeken en filteren
+werkt zonder internet. Beginnen, uitlezen, voortgang en nieuwe boeken worden
+bewaard en verstuurd zodra er weer verbinding is (toots gaan dan ook pas weg).
+Bewerken, verwijderen en leesmomenten aanpassen kan alleen online.
+
 **APK krijgen:** elke wijziging aan de app op `main` levert een nieuwe versie op
 onder *Releases* op GitHub. Installeer die over de vorige heen (sta “installeren
 uit onbekende bron” toe). Zonder ondertekeningssleutel (zie hieronder) staat er

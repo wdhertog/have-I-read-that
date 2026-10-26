@@ -98,6 +98,7 @@ final class App
         $r->add('POST', '/api/reads/{id}', [$api, 'updateRead']);
         $r->add('POST', '/api/reads/{id}/delete', [$api, 'deleteRead']);
         $r->add('GET', '/api/lookup', [$api, 'lookup']);
+        $r->add('GET', '/api/search', [$api, 'search']);
     }
 
     /** Pages anyone may open: the login form, and the public shelf, book pages and feed. */
