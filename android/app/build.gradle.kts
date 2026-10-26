@@ -66,6 +66,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.glance:glance-appwidget:1.1.0")
-    // ISBN scanning through Google Play services: no camera permission needed.
-    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // ISBN scanning with ZXing: open source, works without Google Play services (/e/OS, GrapheneOS).
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }
