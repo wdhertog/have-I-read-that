@@ -12,12 +12,32 @@ final class Http
 {
     public static function get(string $url, int $timeout = 10, int $maxBytes = 5 * 1024 * 1024): ?string
     {
+        return self::request($url, [], $timeout, $maxBytes);
+    }
+
+    /**
+     * POST a JSON body (for GraphQL APIs).
+     *
+     * @param list<string> $headers e.g. ['Authorization: Bearer …']
+     */
+    public static function postJson(string $url, string $json, array $headers = [], int $timeout = 10): ?string
+    {
+        return self::request($url, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $json,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json', ...$headers],
+        ], $timeout, 5 * 1024 * 1024);
+    }
+
+    /** @param array<int, mixed> $options */
+    private static function request(string $url, array $options, int $timeout, int $maxBytes): ?string
+    {
         if (!str_starts_with($url, 'https://')) {
             return null;
         }
         $body = '';
         $ch = curl_init($url);
-        curl_setopt_array($ch, [
+        curl_setopt_array($ch, $options + [
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS => 3,
             CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,

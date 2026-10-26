@@ -13,8 +13,11 @@
     </p>
     <?= $v->partial('_progress', ['b' => $book]) ?>
     <dl>
-      <?php foreach (['contributors' => 'Medewerkers', 'isbn' => 'ISBN', 'pages' => "Pagina's", 'publisher' => 'Uitgever', 'published_year' => 'Jaar', 'language' => 'Taal', 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods'] as $key => $label): ?>
-        <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?= $v->e($key === 'language' ? App\Language::label($book[$key]) : $book[$key]) ?></dd><?php endif ?>
+      <?php if ($book['genre'] ?? null): ?>
+        <dt>Genre</dt><dd><?php foreach (App\Books::tagList($book['genre']) as $i => $genre): ?><?= $i ? ', ' : '' ?><a href="<?= $v->url('/books', ['q' => $genre]) ?>"><?= $v->e($genre) ?></a><?php endforeach ?></dd>
+      <?php endif ?>
+      <?php foreach (['contributors' => 'Medewerkers', 'translator' => 'Vertaler', 'original_title' => 'Oorspronkelijke titel', 'original_language' => 'Oorspronkelijke taal', 'first_published' => 'Eerste verschijning', 'isbn' => 'ISBN', 'pages' => "Pagina's", 'publisher' => 'Uitgever', 'published_year' => 'Jaar', 'language' => 'Taal', 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods', 'awards' => 'Prijzen'] as $key => $label): ?>
+        <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?= $v->e(in_array($key, ['language', 'original_language'], true) ? App\Language::label($book[$key]) : $book[$key]) ?></dd><?php endif ?>
       <?php endforeach ?>
       <?php foreach ($book['details'] ?? [] as $name => $value): ?>
         <dt><?= $v->e(App\StoryGraph::DETAIL_LABELS[$name] ?? $name) ?></dt><dd><?= $v->e($value) ?></dd>
@@ -24,11 +27,12 @@
       <?php endif ?>
       <dt>Toegevoegd</dt><dd><?= $v->e($book['date_added']) ?><?= $book['source'] === 'storygraph' ? ' (StoryGraph)' : '' ?></dd>
     </dl>
+    <?php if ($book['description'] ?? null): ?><div class="description"><?= nl2br($v->e($book['description'])) ?></div><?php endif ?>
     <?php if ($book['review']): ?><blockquote><?= $v->e($book['review']) ?></blockquote><?php endif ?>
     <div class="actions">
       <a class="button secondary" href="<?= $v->url("/books/{$book['id']}/edit") ?>">Bewerken</a>
       <?php if ($book['isbn']): ?>
-      <form method="post" action="<?= $v->url("/books/{$book['id']}/enrich") ?>" class="inline" title="Lege velden en de cover opzoeken bij de KB, Open Library en Google Books">
+      <form method="post" action="<?= $v->url("/books/{$book['id']}/enrich") ?>" class="inline" title="Lege velden en de cover opzoeken bij de ingestelde bronnen">
         <?= $v->csrf() ?><button class="secondary">Gegevens aanvullen</button>
       </form>
       <?php endif ?>

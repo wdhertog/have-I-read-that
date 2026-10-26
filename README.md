@@ -174,19 +174,31 @@ Bij toevoegen, scannen en *Gegevens aanvullen* worden de bronnen in deze volgord
 gevraagd; elke bron vult aan wat de vorige mist:
 
 - **KB** (Koninklijke Bibliotheek): de Nederlandse catalogus, via de openbare
-  zoekdienst op ISBN. Titel, auteur, uitgever, jaar, taal en pagina's; geen covers.
-- **Open Library**: gegevens en covers.
+  zoekdienst op ISBN. Titel, auteur, uitgever, jaar, taal en pagina's, en bij
+  vertalingen vaak de vertaler en de oorspronkelijke titel; geen covers.
+- **Open Library**: gegevens, covers, het jaar van eerste verschijning en een
+  beschrijving (meestal Engels).
 - **Google Books**: gegevens en covers, ook van veel Nederlandse boeken. Werkt zonder
   sleutel; bij "te veel verzoeken" kun je een gratis `GOOGLE_BOOKS_API_KEY` instellen.
-- **Wikidata**: alleen de serie en het deel (de verhaalreeks, niet de reeks van de
-  uitgever). Eerst op ISBN; omdat weinig uitgaven met ISBN in Wikidata staan, daarna
-  op titel en auteur zoals de bronnen ervoor die vonden. Een serie telt alleen als de
-  titel én de achternaam van de auteur kloppen. Zet `wikidata` daarom achteraan.
+- **Hardcover** (optioneel): series, genres en beschrijvingen, vooral van Engelstalige
+  boeken. Alleen met een eigen `HARDCOVER_TOKEN` (hardcover.app → Settings → Hosted API).
+- **Wikidata** en **Wikipedia**: de serie en het deel (de verhaalreeks, niet de reeks
+  van de uitgever), oorspronkelijke titel en taal, vertaler, jaar van eerste
+  verschijning, genre, prijzen en de eerste alinea van het Nederlandse (of anders
+  Engelse) Wikipedia-artikel als beschrijving. Eerst op ISBN; omdat weinig uitgaven
+  met ISBN in Wikidata staan, daarna op titel en auteur zoals de bronnen ervoor die
+  vonden. Dat telt alleen als de titel én de achternaam van de auteur kloppen. Zet
+  `wikidata` daarom achteraan.
 
-Volgorde en keuze stel je in met `METADATA_SOURCES` en `COVER_SOURCES`. Onder
-*Import/export → Gegevens aanvullen* zoek je voor al je boeken met een ISBN de lege
-velden en covers op (in porties). Wat je zelf hebt ingevuld blijft staan. Controleren
-wat de bronnen vanaf je server teruggeven: `php bin/lookup.php 9789023417069`.
+Een Nederlandse beschrijving gaat voor op een anderstalige. Volgorde en keuze stel je
+in met `METADATA_SOURCES` en `COVER_SOURCES`. Onder *Import/export → Gegevens
+aanvullen* zoek je voor al je boeken met een ISBN de lege velden en covers op (in
+porties). Wat je zelf hebt ingevuld blijft staan; alles is ook met de hand te
+bewerken onder *Bewerken → Meer gegevens*. Controleren wat de bronnen vanaf je
+server teruggeven: `php bin/lookup.php 9789023417069`.
+
+Onder *Statistieken* zie je hoeveel je per (oorspronkelijke) taal las, hoeveel daarvan
+in vertaling, en je meest gelezen genres.
 
 ## Jaaroverzicht
 

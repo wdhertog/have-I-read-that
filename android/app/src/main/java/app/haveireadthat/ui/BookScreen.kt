@@ -64,6 +64,7 @@ import app.haveireadthat.Note
 import app.haveireadthat.ProgressRequest
 import app.haveireadthat.Read
 import app.haveireadthat.ReadDates
+import app.haveireadthat.LANGUAGES
 import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
 import app.haveireadthat.StartRequest
@@ -318,7 +319,35 @@ private fun Header(book: Book) {
             if (book.status == "reading") ProgressLine(book)
         }
     }
+    About(book)
     book.review?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+}
+
+/** Genre, translation, first publication and the description (tap to read it all). */
+@Composable
+private fun About(book: Book) {
+    val small = MaterialTheme.typography.bodySmall
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    book.genre?.let { Text(it, style = small, color = muted) }
+    val original = listOfNotNull(
+        book.translator?.let { "Vertaald door $it" },
+        book.originalLanguage?.takeIf { book.translator != null || book.originalTitle != null }
+            ?.let { "uit het ${LANGUAGES[it] ?: it}" },
+        book.originalTitle?.let { "($it)" },
+    ).joinToString(" ")
+    if (original.isNotEmpty()) Text(original, style = small, color = muted)
+    book.firstPublished?.takeIf { it != book.publishedYear }?.let { Text("Eerst verschenen in $it", style = small, color = muted) }
+    book.awards?.let { Text("Prijzen: $it", style = small, color = muted) }
+    book.description?.let { description ->
+        var expanded by rememberSaveable(book.id) { mutableStateOf(false) }
+        Text(
+            description,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = if (expanded) Int.MAX_VALUE else 4,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { expanded = !expanded },
+        )
+    }
 }
 
 @Composable

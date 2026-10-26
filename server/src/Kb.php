@@ -64,7 +64,33 @@ final class Kb
         }
         // "De avonden : een winterverhaal / Gerard Reve" → "De avonden: een winterverhaal"
         $title = trim(preg_replace('/\s+:\s+/', ': ', explode(' / ', $title)[0]));
-        $authors = array_map([self::class, 'name'], array_slice($values('creator'), 0, 3));
+        // Translators and illustrators are listed with a role; they aren't authors.
+        $authors = [];
+        $translators = [];
+        foreach ([...$values('creator'), ...$values('contributor')] as $creator) {
+            if (preg_match('/\([^)]*\b(vert\.|vertal\w*|translat\w*)[^)]*\)/iu', $creator)) {
+                $translators[] = self::name($creator);
+            } elseif (!preg_match('/\((illustr|redact|samenst|inleid|nawoord|voorwoord|ontwerp|fotogr|bewerk|editor)\w*\)/iu', $creator)
+                && in_array($creator, $values('creator'), true)) {
+                $authors[] = self::name($creator);
+            }
+        }
+        $authors = array_slice($authors, 0, 3);
+        // Notes like "Vert. uit het Engels. - Vert. van: The road. - New York : Knopf, 2006"
+        $originalTitle = null;
+        $originalLanguage = null;
+        foreach ($values('description') as $note) {
+            if ($originalTitle === null && preg_match('/(?:Vert\.|Vertaling) van:?\s*(.+?)(?:\s+-\s|\s*\/|$)/u', $note, $m)) {
+                $originalTitle = trim(preg_replace('/\s+:\s+/', ': ', $m[1]), ' .');
+            }
+            if ($originalTitle === null && preg_match('/Oorspr(?:\.|onkelijke) titel:?\s*(.+?)(?:\s+-\s|\s*\/|$)/u', $note, $m)) {
+                $originalTitle = trim(preg_replace('/\s+:\s+/', ': ', $m[1]), ' .');
+            }
+            if ($originalLanguage === null && preg_match('/(?:Vert\.|Vertaald) uit het (\w+)/u', $note, $m)) {
+                $code = Language::normalize($m[1]);
+                $originalLanguage = isset(Language::NAMES[$code]) ? $code : null;
+            }
+        }
         $year = null;
         foreach ($values('date') as $date) {
             if (preg_match('/\b(1[5-9]\d\d|20\d\d)\b/', $date, $m)) {
@@ -90,6 +116,9 @@ final class Kb
             'year' => $year,
             'pages' => $pages,
             'language' => $language,
+            'translator' => $translators ? mb_substr(implode(', ', array_unique($translators)), 0, 255) : null,
+            'original_title' => $originalTitle !== '' ? $originalTitle : null,
+            'original_language' => $originalLanguage,
         ];
     }
 

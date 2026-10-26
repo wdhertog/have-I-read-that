@@ -10,18 +10,26 @@ namespace App;
  */
 final class Catalog
 {
-    public const FIELDS = ['title', 'author', 'pages', 'publisher', 'year', 'language', 'series', 'series_number'];
+    public const FIELDS = [
+        'title', 'author', 'pages', 'publisher', 'year', 'language', 'series', 'series_number', 'description', 'genre',
+        'original_title', 'original_language', 'translator', 'first_published', 'awards',
+    ];
 
-    public const DEFAULT_METADATA_SOURCES = 'kb,openlibrary,google,wikidata';
+    public const DEFAULT_METADATA_SOURCES = 'kb,openlibrary,google,hardcover,wikidata';
 
     private Kb $kb;
     private GoogleBooks $google;
     private Wikidata $wikidata;
+    private Hardcover $hardcover;
 
-    /** @param (callable(string): ?string)|null $get HTTPS GET; injectable for tests. */
-    public function __construct(private Config $config, ?callable $get = null)
+    /**
+     * @param (callable(string): ?string)|null $get HTTPS GET; injectable for tests.
+     * @param (callable(string, string, list<string>): ?string)|null $post HTTPS POST of JSON; likewise.
+     */
+    public function __construct(private Config $config, ?callable $get = null, ?callable $post = null)
     {
         $get = \Closure::fromCallable($get ?? [Http::class, 'get']);
+        $this->hardcover = new Hardcover(\Closure::fromCallable($post ?? [Http::class, 'postJson']), $config->get('HARDCOVER_TOKEN'));
         $this->kb = new Kb($get);
         $this->google = new GoogleBooks($get, $config->get('GOOGLE_BOOKS_API_KEY'));
         $this->wikidata = new Wikidata($get);
@@ -30,6 +38,11 @@ final class Catalog
     public function wikidata(): Wikidata
     {
         return $this->wikidata;
+    }
+
+    public function hardcover(): Hardcover
+    {
+        return $this->hardcover;
     }
 
     /** @return list<string> */
@@ -53,12 +66,15 @@ final class Catalog
     public function lookup(string $isbn): ?array
     {
         $merged = ['isbn' => $isbn, 'sources' => []];
+        $seriesFrom = null;
+        $descriptionLanguage = null;
         foreach ($this->metadataSources() as $source) {
             try {
                 $found = match ($source) {
                     'kb' => $this->kb->byIsbn($isbn),
                     'openlibrary' => OpenLibrary::byIsbn($isbn),
                     'google' => $this->google->byIsbn($isbn),
+                    'hardcover' => $this->hardcover->byIsbn($isbn),
                     // Last, as it searches by the title and author found so far.
                     'wikidata' => $this->wikidata->find($isbn, $merged['title'] ?? null, $merged['author'] ?? null),
                     default => null,
@@ -71,13 +87,29 @@ final class Catalog
             }
             $merged['sources'][] = $source;
             foreach (self::FIELDS as $field) {
-                if (($merged[$field] ?? null) === null || $merged[$field] === '') {
-                    $value = $found[$field] ?? null;
-                    $merged[$field] = $value === '' ? null : $value;
+                $value = ($found[$field] ?? null) === '' ? null : ($found[$field] ?? null);
+                $empty = ($merged[$field] ?? null) === null;
+                if ($field === 'series_number') {
+                    // A number only belongs with the series it came with.
+                    $empty = $empty && $seriesFrom === $source;
+                } elseif ($field === 'description' && !$empty && $value !== null) {
+                    // A Dutch description wins over one in another language.
+                    $empty = ($found['description_language'] ?? null) === 'nl' && $descriptionLanguage !== 'nl';
+                }
+                if ($empty && $value !== null) {
+                    $merged[$field] = $value;
+                    if ($field === 'series') {
+                        $seriesFrom = $source;
+                    } elseif ($field === 'description') {
+                        $descriptionLanguage = $found['description_language'] ?? null;
+                    }
+                } else {
+                    $merged[$field] ??= null;
                 }
             }
         }
         $merged['language'] = Language::normalize($merged['language'] ?? null);
+        $merged['original_language'] = Language::normalize($merged['original_language'] ?? null);
         return ($merged['title'] ?? null) ? $merged : null;
     }
 
@@ -105,7 +137,7 @@ final class Catalog
                 $key = $result['isbn'] !== '' ? $result['isbn'] : mb_strtolower($result['title'] . '|' . $result['author']);
                 if (!isset($seen[$key])) {
                     $seen[$key] = true;
-                    unset($result['cover']);
+                    unset($result['cover'], $result['work']);
                     $results[] = $result;
                 }
             }
