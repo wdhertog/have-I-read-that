@@ -4,6 +4,7 @@ import app.haveireadthat.Shared
 import app.haveireadthat.Repository
 import app.haveireadthat.Outcome
 import app.haveireadthat.LookupResult
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.clickable
@@ -45,9 +46,9 @@ import app.haveireadthat.DuplicateException
 import app.haveireadthat.NewBook
 import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.zxing.client.android.Intents
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -151,14 +152,23 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, sha
         }
     }
 
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val code = result.contents
+        when {
+            code != null -> lookup(code)
+            result.originalIntent?.hasExtra(Intents.Scan.MISSING_CAMERA_PERMISSION) == true ->
+                message = "Geef de app toestemming voor de camera om te kunnen scannen."
+        }
+    }
+
     fun scan() {
-        val options = GmsBarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8, Barcode.FORMAT_UPC_A)
-            .enableAutoZoom()
-            .build()
-        GmsBarcodeScanning.getClient(context, options).startScan()
-            .addOnSuccessListener { barcode -> barcode.rawValue?.let(::lookup) }
-            .addOnFailureListener { e -> message = "Scannen mislukt: ${e.message}" }
+        scanner.launch(
+            ScanOptions()
+                .setDesiredBarcodeFormats(ScanOptions.EAN_13, ScanOptions.EAN_8, ScanOptions.UPC_A)
+                .setPrompt("Richt de camera op de streepjescode met het ISBN")
+                .setBeepEnabled(false)
+                .setOrientationLocked(false),
+        )
     }
 
     fun save(allowDuplicate: Boolean = false) {

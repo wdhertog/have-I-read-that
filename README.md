@@ -237,8 +237,9 @@ blijven staan.
 
 ## Android-app
 
-De app kan boeken toevoegen door de ISBN-barcode te scannen (via Google Play
-services, dus zonder camera-toestemming), boeken starten en uitlezen met
+De app kan boeken toevoegen door de ISBN-barcode te scannen (met ZXing, dus ook
+zonder Google Play services, bijv. op /e/OS; de eerste keer vraagt de app
+toestemming voor de camera), boeken starten en uitlezen met
 beoordeling en recensie (en daarbij naar Mastodon posten), en je bibliotheek
 doorbladeren en doorzoeken.
 
