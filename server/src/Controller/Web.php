@@ -10,7 +10,6 @@ use App\Backup;
 use App\Books;
 use App\Export;
 use App\MastodonException;
-use App\OpenLibrary;
 use App\Request;
 use App\Response;
 use App\StoryGraph;
@@ -118,12 +117,7 @@ final class Web
         $q = $request->query('q');
         $results = null;
         if ($q !== '') {
-            try {
-                $results = OpenLibrary::search($q);
-            } catch (\RuntimeException $e) {
-                $this->app->flash('error', 'Zoeken bij Open Library mislukt: ' . $e->getMessage());
-                $results = [];
-            }
+            $results = $this->app->catalog->search($q);
         }
         $book = [];
         foreach (['title', 'author', 'isbn', 'pages'] as $key) {
@@ -170,9 +164,99 @@ final class Web
             'reads' => $this->app->books->reads($id),
             'posts' => $this->app->books->posts($id),
             'notes' => $this->app->books->notes($id),
+            'loans' => $this->app->loans->forBook($id),
+            'borrowers' => $this->app->loans->borrowers(),
             'tootKind' => $book['status'] === 'reading' ? 'started' : 'finished',
             'tootText' => $this->app->tooter->compose($book, $book['status'] === 'reading' ? 'started' : 'finished'),
         ]);
+    }
+
+    public function lend(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->app->render('404', [], 404);
+        }
+        try {
+            $this->app->loans->lend($id, $request->input('borrower'), Books::validDate($request->input('date')), $request->input('note'));
+            $this->app->flash('ok', 'Uitgeleend.');
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
+        return Response::redirect($this->app->url("/books/{$id}") . '#uitlenen');
+    }
+
+    public function returnBook(Request $request, int $id): Response
+    {
+        $this->app->loans->returnBook($id, Books::validDate($request->input('date')));
+        $this->app->flash('ok', 'Teruggekregen.');
+        return Response::redirect($this->app->url("/books/{$id}") . '#uitlenen');
+    }
+
+    public function deleteLoan(Request $request, int $id): Response
+    {
+        $bookId = $this->app->loans->delete($id);
+        return Response::redirect($this->app->url($bookId ? "/books/{$bookId}" : '/loans'));
+    }
+
+    public function loans(Request $request): Response
+    {
+        return $this->app->render('loans', ['people' => $this->app->loans->byPerson()]);
+    }
+
+    /** Look the book up in the catalogues and fill in what's empty. */
+    public function enrich(Request $request, int $id): Response
+    {
+        $book = $this->app->books->find($id);
+        if (!$book) {
+            return $this->app->render('404', [], 404);
+        }
+        if (!$book['isbn']) {
+            $this->app->flash('error', 'Zonder ISBN kan ik dit boek niet opzoeken. Vul eerst het ISBN in.');
+            return $this->toBook($id);
+        }
+        $info = $this->app->catalog->lookup($book['isbn']);
+        $filled = $this->app->books->fillFromCatalog($book, $info);
+        $this->warmCover($book);
+        $this->app->flash($info ? 'ok' : 'error', match (true) {
+            $info === null => 'Niet gevonden bij ' . implode(', ', $this->app->catalog->metadataSources()) . '.',
+            $filled === [] => 'Gevonden bij ' . implode(', ', $info['sources']) . ', maar er was niets aan te vullen.',
+            default => 'Aangevuld uit ' . implode(', ', $info['sources']) . ': ' . implode(', ', $filled) . '.',
+        });
+        return $this->toBook($id);
+    }
+
+    /**
+     * Fill in all books in portions: as many as fit in ~20 seconds, so it never runs
+     * into the host's time limit. Click again for the next portion.
+     */
+    public function enrichAll(Request $request): Response
+    {
+        $deadline = microtime(true) + 20;
+        $done = 0;
+        $filled = 0;
+        foreach ($this->app->books->toEnrich(100) as $book) {
+            if (microtime(true) > $deadline) {
+                break;
+            }
+            if ($this->app->books->fillFromCatalog($book, $this->app->catalog->lookup($book['isbn']))) {
+                $filled++;
+            }
+            $this->warmCover($book);
+            $done++;
+        }
+        $left = $this->app->books->countToEnrich();
+        $this->app->flash('ok', "{$done} boeken opgezocht, {$filled} aangevuld." . ($left ? " Nog {$left} te gaan: klik nog eens." : ' Klaar!'));
+        return Response::redirect($this->app->url('/import') . '#aanvullen');
+    }
+
+    /** Fetch the cover now, so the first page view doesn't have to. */
+    private function warmCover(array $book): void
+    {
+        try {
+            $this->app->covers->image($book);
+        } catch (\RuntimeException) {
+            // no cover; nothing to warm
+        }
     }
 
     public function addNote(Request $request, int $id): Response
@@ -442,7 +526,7 @@ final class Web
 
     public function importForm(Request $request): Response
     {
-        return $this->app->render('import', ['result' => null]);
+        return $this->app->render('import', ['result' => null, 'toEnrich' => $this->app->books->countToEnrich()]);
     }
 
     /** Step 1: read the file and show what an import would do, without saving anything. */

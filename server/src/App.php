@@ -21,6 +21,8 @@ final class App
     public readonly View $view;
     public readonly YearReview $yearReview;
     public readonly Covers $covers;
+    public readonly Catalog $catalog;
+    public readonly Loans $loans;
     /** The request being handled, for absolute URLs. */
     private ?Request $request = null;
     private Router $router;
@@ -30,7 +32,13 @@ final class App
         $this->books = new Books($db);
         $this->auth = new Auth($config, $db);
         $this->mastodon = Mastodon::fromConfig($config);
-        $this->covers = new Covers($config->get('COVERS_DIR', dirname(__DIR__) . '/var/covers'));
+        $this->catalog = new Catalog($config);
+        $this->loans = new Loans($db);
+        $this->covers = new Covers(
+            $config->get('COVERS_DIR', dirname(__DIR__) . '/var/covers'),
+            [$this->catalog, 'cover'],
+            implode(',', $this->catalog->coverSources()),
+        );
         $this->tooter = new Tooter($this->books, $this->mastodon, $config, [$this->covers, 'image']);
         $this->yearReview = new YearReview($this->books, $this->mastodon, [$this->covers, 'image']);
         $this->view = new View(dirname(__DIR__) . '/templates', $basePath, fn (array $book) => $this->coverUrl($book));
@@ -64,6 +72,12 @@ final class App
         $r->add('POST', '/books/{id}/notes', [$web, 'addNote']);
         $r->add('POST', '/notes/{id}/delete', [$web, 'deleteNote']);
         $r->add('GET', '/collections', [$web, 'collections']);
+        $r->add('POST', '/books/{id}/lend', [$web, 'lend']);
+        $r->add('POST', '/books/{id}/return', [$web, 'returnBook']);
+        $r->add('POST', '/loans/{id}/delete', [$web, 'deleteLoan']);
+        $r->add('GET', '/loans', [$web, 'loans']);
+        $r->add('POST', '/books/{id}/enrich', [$web, 'enrich']);
+        $r->add('POST', '/import/enrich', [$web, 'enrichAll']);
         $r->add('POST', '/collections/rename', [$web, 'renameShelf']);
         $r->add('POST', '/reads/{id}/delete', [$web, 'deleteRead']);
         $r->add('GET', '/stats', [$web, 'stats']);
@@ -104,6 +118,9 @@ final class App
         $r->add('GET', '/api/lookup', [$api, 'lookup']);
         $r->add('GET', '/api/search', [$api, 'search']);
         $r->add('GET', '/api/collections', [$api, 'collections']);
+        $r->add('GET', '/api/loans', [$api, 'loans']);
+        $r->add('POST', '/api/books/{id}/lend', [$api, 'lend']);
+        $r->add('POST', '/api/books/{id}/return', [$api, 'returnBook']);
         $r->add('POST', '/api/books/{id}/notes', [$api, 'addNote']);
         $r->add('POST', '/api/notes/{id}/delete', [$api, 'deleteNote']);
     }

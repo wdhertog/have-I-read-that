@@ -22,6 +22,8 @@ android/   Kotlin/Jetpack Compose-app die met de API praat
 - Leesdoel per jaar en leesvoortgang (pagina of percentage), eventueel met een toot
 - Export naar CSV (StoryGraph-formaat, weer te importeren) en JSON
 - Waarschuwing als je een boek toevoegt dat er al in staat
+- Uitlenen bijhouden: aan wie, sinds wanneer, met een overzicht per persoon (alleen voor jou)
+- Boekgegevens van de KB (Koninklijke Bibliotheek), Open Library en Google Books; covers van Open Library en Google Books
 - Notities en citaten per boek (privé, of openbaar op de boekpagina)
 - Planken (je tags; die van StoryGraph komen er vanzelf in) en series met deelnummers
 - Toots met de cover als afbeelding (met alt-tekst), en een jaaroverzicht-toot met een collage van covers
@@ -165,6 +167,22 @@ In de templates kun je `{title}`, `{author}`, `{stars}`, `{rating}`, `{review}` 
 2. Vink alleen `write:statuses` en `read:accounts` aan.
 3. Zet het toegangstoken in `MASTODON_ACCESS_TOKEN` en je server in `MASTODON_INSTANCE`.
 4. Controleer het op de site onder *Instellingen → Test verbinding*.
+
+## Bronnen voor boekgegevens en covers
+
+Bij toevoegen, scannen en *Gegevens aanvullen* worden de bronnen in deze volgorde
+gevraagd; elke bron vult aan wat de vorige mist:
+
+- **KB** (Koninklijke Bibliotheek): de Nederlandse catalogus, via de openbare
+  zoekdienst op ISBN. Titel, auteur, uitgever, jaar, taal en pagina's; geen covers.
+- **Open Library**: gegevens en covers.
+- **Google Books**: gegevens en covers, ook van veel Nederlandse boeken. Werkt zonder
+  sleutel; bij "te veel verzoeken" kun je een gratis `GOOGLE_BOOKS_API_KEY` instellen.
+
+Volgorde en keuze stel je in met `METADATA_SOURCES` en `COVER_SOURCES`. Onder
+*Import/export → Gegevens aanvullen* zoek je voor al je boeken met een ISBN de lege
+velden en covers op (in porties). Wat je zelf hebt ingevuld blijft staan. Controleren
+wat de bronnen vanaf je server teruggeven: `php bin/lookup.php 9789023417069`.
 
 ## Jaaroverzicht
 

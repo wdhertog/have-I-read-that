@@ -3,6 +3,8 @@ package app.haveireadthat.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,6 +57,8 @@ import app.haveireadthat.ApiException
 import app.haveireadthat.Outcome
 import app.haveireadthat.Repository
 import app.haveireadthat.FinishRequest
+import app.haveireadthat.LendRequest
+import app.haveireadthat.ReturnRequest
 import app.haveireadthat.NewNote
 import app.haveireadthat.Note
 import app.haveireadthat.ProgressRequest
@@ -85,6 +89,8 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
     var confirmDelete by remember { mutableStateOf(false) }
     var readEdit by remember { mutableStateOf<ReadEdit?>(null) }
     var addingNote by remember { mutableStateOf(false) }
+    var lending by remember { mutableStateOf(false) }
+    var borrowers by remember { mutableStateOf<List<String>>(emptyList()) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -195,6 +201,19 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                     }
                 }
             }
+            if (current.id > 0) {
+                Lending(
+                    current,
+                    busy = busy,
+                    onLend = {
+                        lending = true
+                        scope.launch { borrowers = runCatching { repository.loans().value.borrowers }.getOrDefault(emptyList()) }
+                    },
+                    onReturn = {
+                        act("Teruggekregen.") { repository.giveBack(current, ReturnRequest(LocalDate.now().toString())) }
+                    },
+                )
+            }
             Notes(
                 current,
                 onAdd = { addingNote = true },
@@ -228,6 +247,17 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                 }) { Text("Verwijderen") }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuleren") } },
+        )
+    }
+
+    if (lending) {
+        LendDialog(
+            borrowers = borrowers,
+            onDismiss = { lending = false },
+            onSave = { request ->
+                lending = false
+                book?.let { current -> act("Uitgeleend aan ${request.borrower}.") { repository.lend(current, request) } }
+            },
         )
     }
 
@@ -521,6 +551,57 @@ private fun NoteDialog(onDismiss: () -> Unit, onSave: (NewNote) -> Unit) {
             TextButton(enabled = text.isNotBlank(), onClick = {
                 onSave(NewNote(if (quote) "quote" else "note", text.trim(), page.toIntOrNull(), isPublic))
             }) { Text("Bewaren") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuleren") } },
+    )
+}
+
+@Composable
+private fun Lending(book: Book, busy: Boolean, onLend: () -> Unit, onReturn: () -> Unit) {
+    Text("Uitlenen", style = MaterialTheme.typography.titleMedium)
+    val lentTo = book.lentTo
+    if (lentTo != null) {
+        Text("📕 Uitgeleend aan $lentTo sinds ${book.lentSince ?: "?"}.")
+        Button(enabled = !busy, onClick = onReturn) { Text("Teruggekregen") }
+    } else {
+        OutlinedButton(enabled = !busy, onClick = onLend) { Text("Uitlenen") }
+    }
+    val past = book.loans.filter { it.returnedOn != null }
+    if (past.isNotEmpty()) {
+        Text(
+            "Eerder: " + past.joinToString(", ") { "${it.borrower} (${it.lentOn})" },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LendDialog(borrowers: List<String>, onDismiss: () -> Unit, onSave: (LendRequest) -> Unit) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var note by rememberSaveable { mutableStateOf("") }
+    val suggestions = borrowers.filter { name.isBlank() || it.contains(name.trim(), ignoreCase = true) }.take(6)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Uitlenen") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it.take(100) }, label = { Text("Aan") }, singleLine = true)
+                if (suggestions.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        suggestions.forEach { suggestion ->
+                            FilterChip(selected = suggestion == name, onClick = { name = suggestion }, label = { Text(suggestion) })
+                        }
+                    }
+                }
+                OutlinedTextField(note, { note = it.take(500) }, label = { Text("Notitie (optioneel)") }, singleLine = true)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = name.isNotBlank(), onClick = {
+                onSave(LendRequest(name.trim(), LocalDate.now().toString(), note.trim().ifEmpty { null }))
+            }) { Text("Uitlenen") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuleren") } },
     )

@@ -14,6 +14,18 @@
   </form>
 </section>
 
+<?php if (isset($toEnrich)): ?>
+<section class="card" id="aanvullen">
+  <h2>Gegevens aanvullen</h2>
+  <p>Zoek voor je boeken met een ISBN de lege velden (pagina's, uitgever, jaar, taal, auteur) en de cover op bij de KB, Open Library en Google Books. Wat je zelf hebt ingevuld blijft staan.</p>
+  <?php if ($toEnrich > 0): ?>
+    <form method="post" action="<?= $v->url('/import/enrich') ?>"><?= $v->csrf() ?>
+      <button class="secondary">Aanvullen (nog <?= (int) $toEnrich ?> boeken)</button></form>
+    <p class="muted">Dit gaat in porties van zo'n 20 seconden; klik nog eens tot het klaar is.</p>
+  <?php else: ?><p class="muted">Alle boeken met een ISBN zijn opgezocht.</p><?php endif ?>
+</section>
+<?php endif ?>
+
 <?php if (!empty($preview)): ?>
 <section class="card">
   <h2>Voorbeeld: dit gaat er gebeuren</h2>

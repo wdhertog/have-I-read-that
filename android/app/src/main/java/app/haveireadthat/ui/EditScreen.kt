@@ -58,6 +58,8 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
     var rating by rememberSaveable { mutableFloatStateOf(0f) }
     var review by rememberSaveable { mutableStateOf("") }
     var tags by rememberSaveable { mutableStateOf("") }
+    var publisher by rememberSaveable { mutableStateOf("") }
+    var year by rememberSaveable { mutableStateOf("") }
     var series by rememberSaveable { mutableStateOf("") }
     var seriesNumber by rememberSaveable { mutableStateOf("") }
     var owned by rememberSaveable { mutableStateOf(false) }
@@ -77,6 +79,8 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
             rating = book.rating?.toFloat() ?: 0f
             review = book.review.orEmpty()
             tags = book.tags.orEmpty()
+            publisher = book.publisher.orEmpty()
+            year = book.publishedYear?.toString().orEmpty()
             series = book.series.orEmpty()
             seriesNumber = book.seriesNumber?.let(::formatNumber).orEmpty()
             owned = book.owned
@@ -103,6 +107,8 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
                         review = review.trim().ifEmpty { null },
                         format = format,
                         tags = tags.trim().ifEmpty { null },
+                        publisher = publisher.trim().ifEmpty { null },
+                        publishedYear = year.toIntOrNull(),
                         series = series.trim().ifEmpty { null },
                         seriesNumber = seriesNumber.replace(',', '.').toDoubleOrNull(),
                         owned = owned,
@@ -180,6 +186,14 @@ fun EditScreen(settings: Settings, id: Int, onDone: () -> Unit) {
                 supportingText = { Text("Gescheiden door komma's, bijv. fantasy, bieb") },
                 modifier = Modifier.fillMaxWidth(),
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(publisher, { publisher = it }, label = { Text("Uitgever") }, singleLine = true, modifier = Modifier.weight(3f))
+                OutlinedTextField(
+                    year, { year = it.filter(Char::isDigit).take(4) }, label = { Text("Jaar") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(series, { series = it }, label = { Text("Serie") }, singleLine = true, modifier = Modifier.weight(3f))
                 OutlinedTextField(

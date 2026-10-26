@@ -19,7 +19,7 @@ import java.util.UUID
 @Serializable
 data class PendingAction(
     val id: String,
-    val type: String, // start, finish, progress, create, note
+    val type: String, // start, finish, progress, create, note, lend, return
     val bookId: Int,
     val title: String,
     val body: String, // the request as JSON
@@ -127,6 +127,31 @@ class Repository(context: Context) {
         local = { it.copy(notes = it.notes + Note(id = -1 - it.notes.size, kind = note.kind, text = note.text, page = note.page, isPublic = note.isPublic)) },
     )
 
+    suspend fun lend(book: Book, request: LendRequest): Outcome = send(
+        "lend", book, ApiClient.json.encodeToString(request),
+        online = { client().lend(book.id, request) },
+        local = { it.copy(lentTo = request.borrower, lentSince = request.date) },
+    )
+
+    suspend fun giveBack(book: Book, request: ReturnRequest): Outcome = send(
+        "return", book, ApiClient.json.encodeToString(request),
+        online = { client().giveBack(book.id, request) },
+        local = { it.copy(lentTo = null, lentSince = null) },
+    )
+
+    /** Everyone you lent to; offline only what's out now, from the phone's copy. */
+    suspend fun loans(): Loaded<LoansResponse> = try {
+        Loaded(client().loans(), offline = false)
+    } catch (e: ApiException) {
+        throw e
+    } catch (e: IOException) {
+        val out = state().books.filter { it.lentTo != null }
+        val people = out.groupBy { it.lentTo!!.lowercase() }.values.map { books ->
+            Person(books.first().lentTo!!, current = books.map { Loan(0, it.id, it.lentTo!!, it.lentSince.orEmpty(), title = it.title) })
+        }.sortedBy { it.name.lowercase() }
+        Loaded(LoansResponse(people, people.map { it.name }), offline = true)
+    }
+
     /** Add a book; offline it gets a temporary negative id until it's sent. */
     suspend fun create(request: NewBook): Outcome = try {
         client().create(request).also { refreshAfterChange() }.let { Outcome.Sent(it) }
@@ -186,6 +211,8 @@ class Repository(context: Context) {
                     "progress" -> client().progress(next.bookId, ApiClient.json.decodeFromString<ProgressRequest>(next.body))
                     "create" -> client().create(ApiClient.json.decodeFromString<NewBook>(next.body))
                     "note" -> client().addNote(next.bookId, ApiClient.json.decodeFromString<NewNote>(next.body))
+                    "lend" -> client().lend(next.bookId, ApiClient.json.decodeFromString<LendRequest>(next.body))
+                    "return" -> client().giveBack(next.bookId, ApiClient.json.decodeFromString<ReturnRequest>(next.body))
                     else -> null
                 }
                 update { s ->
@@ -256,7 +283,7 @@ class Repository(context: Context) {
 
 /** Put a newer version of a book into both the list and the details. */
 private fun LocalState.withBook(book: Book): LocalState = copy(
-    books = if (books.any { it.id == book.id }) books.map { if (it.id == book.id) book.copy(reads = emptyList(), posts = emptyList(), notes = emptyList()) else it }
+    books = if (books.any { it.id == book.id }) books.map { if (it.id == book.id) book.copy(reads = emptyList(), posts = emptyList(), notes = emptyList(), loans = emptyList()) else it }
     else listOf(book) + books,
     details = details + (book.id to book),
 )
