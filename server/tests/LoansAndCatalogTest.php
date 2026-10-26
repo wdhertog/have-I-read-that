@@ -451,7 +451,7 @@ XML;
             ['language' => 'en', 'books' => 2, 'translated' => 2],
             ['language' => 'nl', 'books' => 1, 'translated' => 0],
         ], $this->app->books->readByLanguage());
-        self::assertSame(['fantasy' => 2, 'jeugd' => 1], $this->app->books->topGenres());
+        self::assertSame(['Fantasy' => 2, 'jeugd' => 1], $this->app->books->topGenres(), 'same spelling whatever the order');
         $page = $this->app->handle(new Request('GET', '/stats'))->body;
         self::assertStringContainsString('Engels: 2 boeken', $page);
         self::assertStringContainsString('2 van de 3 boeken (67%) las je in vertaling.', $page);

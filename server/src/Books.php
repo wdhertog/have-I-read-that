@@ -485,6 +485,15 @@ final class Books
             $this->query('UPDATE `reads` SET finished = ?, dnf = ? WHERE id = ?', [$date, (int) $dnf, $open]);
         } else {
             $this->addRead($id, null, $date, $dnf);
+            $open = $this->db->lastInsertId();
+        }
+        $pages = $this->query('SELECT pages FROM books WHERE id = ?', [$id])->fetchColumn();
+        if (!$dnf && $pages) {
+            // Finished: the rest of the book was read that day, if the diary was kept.
+            $logged = $this->query('SELECT COUNT(*) FROM reading_log WHERE read_id = ?', [$open])->fetchColumn();
+            if ($logged) {
+                $this->logPage((int) $open, (int) $pages, $date);
+            }
         }
         $review = $review !== null && trim($review) !== '' ? trim($review) : null;
         $this->query(
@@ -550,7 +559,171 @@ final class Books
             $open = $this->db->lastInsertId();
         }
         $this->query('UPDATE `reads` SET progress_page = ?, progress_percent = ? WHERE id = ?', [$page, $percent, $open]);
+        $this->logPage((int) $open, $page, date('Y-m-d'));
         return ['page' => $page, 'percent' => $percent];
+    }
+
+    /** Note in the reading diary how far you got on a day (the last update of the day counts). */
+    private function logPage(int $readId, ?int $page, string $day): void
+    {
+        if ($page === null) {
+            return;
+        }
+        $this->query(
+            'INSERT INTO reading_log (read_id, day, page) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE page = VALUES(page)',
+            [$readId, $day, $page],
+        );
+    }
+
+    /**
+     * Pages read per day between two dates (inclusive), from the reading diary. Reads
+     * without a diary (older ones, imports) are spread evenly from start to finish, or
+     * put on the day they were finished when the start is unknown: those days are also
+     * listed in "estimated".
+     *
+     * @return array{days: array<string, int>, estimated: array<string, int>}
+     */
+    public function pagesPerDay(string $from, string $to): array
+    {
+        $days = [];
+        $estimated = [];
+        $add = static function (array &$list, string $day, int $pages) use ($from, $to): void {
+            if ($pages > 0 && $day >= $from && $day <= $to) {
+                $list[$day] = ($list[$day] ?? 0) + $pages;
+            }
+        };
+        $rows = $this->query(
+            'SELECT l.read_id, l.day, l.page, r.log_from_page FROM reading_log l JOIN `reads` r ON r.id = l.read_id
+             WHERE l.day <= ? ORDER BY l.read_id, l.day',
+            [$to],
+        )->fetchAll();
+        $previous = [];
+        foreach ($rows as $row) {
+            $read = (int) $row['read_id'];
+            $before = $previous[$read] ?? (int) ($row['log_from_page'] ?? 0);
+            $add($days, (string) $row['day'], max(0, (int) $row['page'] - $before));
+            $previous[$read] = max($before, (int) $row['page']);
+        }
+        $unlogged = $this->query(
+            'SELECT r.started, r.finished, b.pages FROM `reads` r JOIN books b ON b.id = r.book_id
+             WHERE r.finished >= ? AND r.finished <= ? AND r.dnf = 0 AND b.pages > 0
+               AND NOT EXISTS (SELECT 1 FROM reading_log l WHERE l.read_id = r.id)',
+            [$from, $to],
+        )->fetchAll();
+        foreach ($unlogged as $row) {
+            $finished = new \DateTimeImmutable((string) $row['finished']);
+            $started = $row['started'] !== null ? new \DateTimeImmutable((string) $row['started']) : $finished;
+            if ($started > $finished || $started->diff($finished)->days > 365) {
+                $started = $finished;
+            }
+            $count = $started->diff($finished)->days + 1;
+            $pages = (int) $row['pages'];
+            for ($i = 0; $i < $count; $i++) {
+                // Whole pages: the remainder goes to the last days.
+                $share = intdiv($pages, $count) + ($i >= $count - $pages % $count ? 1 : 0);
+                $day = $started->modify("+{$i} days")->format('Y-m-d');
+                $add($days, $day, $share);
+                $add($estimated, $day, $share);
+            }
+        }
+        ksort($days);
+        return ['days' => $days, 'estimated' => $estimated];
+    }
+
+    /**
+     * Pages per day over a year: the total, the average per day (so far, for this
+     * year), your best day in the diary, per month, and the last two weeks.
+     *
+     * @return array{total: int, average: float, best: ?array{day: string, pages: int}, months: array<int, int>, recent: array<string, int>, recentEstimated: array<string, int>, estimated: int}
+     */
+    public function dailyPages(int $year): array
+    {
+        $from = sprintf('%04d-01-01', $year);
+        $last = sprintf('%04d-12-31', $year);
+        $today = date('Y-m-d');
+        $to = min($last, $today);
+        $data = $to >= $from ? $this->pagesPerDay($from, $to) : ['days' => [], 'estimated' => []];
+        $months = array_fill(1, 12, 0);
+        $best = null;
+        foreach ($data['days'] as $day => $pages) {
+            $months[(int) substr((string) $day, 5, 2)] += $pages;
+            $logged = $pages - ($data['estimated'][$day] ?? 0);
+            if ($logged > 0 && ($best === null || $logged > $best['pages'])) {
+                $best = ['day' => (string) $day, 'pages' => $logged];
+            }
+        }
+        $elapsed = $to >= $from ? (new \DateTimeImmutable($from))->diff(new \DateTimeImmutable($to))->days + 1 : 0;
+        $total = array_sum($data['days']);
+        $recent = [];
+        $recentEstimated = [];
+        if ($to === $today) {
+            for ($i = 13; $i >= 0; $i--) {
+                $day = date('Y-m-d', strtotime("-{$i} days"));
+                $recent[$day] = $day >= $from ? ($data['days'][$day] ?? 0) : 0;
+                $recentEstimated[$day] = $day >= $from ? ($data['estimated'][$day] ?? 0) : 0;
+            }
+        }
+        return [
+            'total' => $total,
+            'average' => $elapsed > 0 ? round($total / $elapsed, 1) : 0.0,
+            'best' => $best,
+            'months' => $months,
+            'recent' => $recent,
+            'recentEstimated' => $recentEstimated,
+            'estimated' => array_sum($data['estimated']),
+        ];
+    }
+
+    /**
+     * Books and pages read in a year per genre, shelf and language (the language you
+     * read it in). A book with two genres counts for both.
+     *
+     * @return array<string, array<string, array{books: int, pages: int}>>
+     */
+    public function pagesBreakdown(int $year): array
+    {
+        $groups = ['genre' => [], 'shelf' => [], 'language' => []];
+        foreach ($this->readInYear($year) as $book) {
+            $names = [
+                'genre' => self::tagList($book['genre'] ?? null),
+                'shelf' => self::tagList($book['tags']),
+                'language' => ($book['language'] ?? null) !== null ? [Language::label($book['language'])] : [],
+            ];
+            foreach ($names as $group => $list) {
+                foreach ($list ?: ['(onbekend)'] as $name) {
+                    $key = mb_strtolower($name);
+                    $groups[$group][$key] ??= ['spellings' => [], 'books' => 0, 'pages' => 0];
+                    $groups[$group][$key]['spellings'][$name] = ($groups[$group][$key]['spellings'][$name] ?? 0) + 1;
+                    $groups[$group][$key]['books']++;
+                    $groups[$group][$key]['pages'] += (int) ($book['pages'] ?? 0);
+                }
+            }
+        }
+        foreach ($groups as $group => $list) {
+            $rows = [];
+            foreach ($list as $row) {
+                $rows[] = ['name' => self::spelling($row['spellings'])] + $row;
+            }
+            usort($rows, static fn (array $a, array $b) => [$b['pages'], $b['books'], $a['name']] <=> [$a['pages'], $a['books'], $b['name']]);
+            $groups[$group] = [];
+            foreach ($rows as $row) {
+                $groups[$group][$row['name']] = ['books' => $row['books'], 'pages' => $row['pages']];
+            }
+        }
+        return $groups;
+    }
+
+    /**
+     * Which way of writing a name to show ("fantasy" or "Fantasy"): the one used most,
+     * else the first in alphabetical order, so it doesn't depend on the database's order.
+     *
+     * @param array<array-key, int> $spellings spelling => times used
+     */
+    private static function spelling(array $spellings): string
+    {
+        $names = array_map('strval', array_keys($spellings));
+        usort($names, static fn (string $a, string $b) => [$spellings[$b], $a] <=> [$spellings[$a], $b]);
+        return $names[0];
     }
 
     public function goal(int $year): ?int
@@ -919,20 +1092,20 @@ final class Books
     public function topGenres(int $limit = 10): array
     {
         $counts = [];
-        $names = [];
+        $spellings = [];
         foreach ($this->query("SELECT genre FROM books WHERE status = 'read' AND genre IS NOT NULL AND genre != ''")->fetchAll(PDO::FETCH_COLUMN) as $genres) {
             foreach (self::tagList($genres) as $genre) {
                 $key = mb_strtolower($genre);
-                $names[$key] ??= $genre;
+                $spellings[$key][$genre] = ($spellings[$key][$genre] ?? 0) + 1;
                 $counts[$key] = ($counts[$key] ?? 0) + 1;
             }
         }
-        arsort($counts);
         $top = [];
-        foreach (array_slice($counts, 0, $limit, true) as $key => $n) {
-            $top[$names[$key]] = $n;
+        foreach ($counts as $key => $n) {
+            $top[self::spelling($spellings[(string) $key])] = $n;
         }
-        return $top;
+        uksort($top, static fn ($a, $b) => [$top[$b], (string) $a] <=> [$top[$a], (string) $b]);
+        return array_slice($top, 0, $limit, true);
     }
 
     public function topAuthors(int $limit = 10): array

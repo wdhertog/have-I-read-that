@@ -452,6 +452,8 @@ final class Web
             'topAuthors' => $this->app->books->topAuthors(),
             'languages' => $this->app->books->readByLanguage(),
             'genres' => $this->app->books->topGenres(),
+            'breakdown' => $this->app->books->pagesBreakdown($year),
+            'daily' => $this->app->books->dailyPages($year),
             'maxBooks' => max(array_column($years, 'books') ?: [0]),
         ]);
     }
