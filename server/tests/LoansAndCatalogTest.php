@@ -333,7 +333,7 @@ XML;
         $asked = [];
         $found = (new Wikidata($this->fakeWikidata($asked)))->find('9789076174082', 'Harry Potter en de geheime kamer', 'J.K. Rowling');
         self::assertSame([
-            'series' => 'Harry Potter', 'series_number' => 2.0,
+            'series' => 'Harry Potter', 'series_number' => 2.0, 'wikidata_series' => 'Q8337',
             'original_title' => 'Harry Potter and the Chamber of Secrets', 'original_language' => 'en',
             'first_published' => 1998, 'genre' => 'fantasy, kinderliteratuur', 'translator' => "Wiebe Buddingh'",
             'awards' => 'Nestlé Smarties Book Prize',

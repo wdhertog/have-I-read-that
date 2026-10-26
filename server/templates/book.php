@@ -168,3 +168,20 @@
     <button class="secondary">Nu posten</button>
   </form>
 </section>
+
+<section class="card" id="samenvoegen">
+  <h2>Samenvoegen</h2>
+  <p class="muted">Staat dit boek er twee keer in, bijvoorbeeld als paperback en e-book of als vertaling en origineel? Voeg de andere editie hierbij: leesmomenten, notities, uitleningen en posts komen hierheen, lege velden worden aangevuld en het andere boek verdwijnt. Het ISBN van de andere editie blijft bekend, zodat scannen en importeren dit boek terugvinden.</p>
+  <?php if ($mergeCandidates): ?>
+  <form method="post" action="<?= $v->url("/books/{$book['id']}/merge") ?>" class="row" data-confirm="Het gekozen boek samenvoegen met dit boek? Het andere boek verdwijnt.">
+    <?= $v->csrf() ?>
+    <select name="other" aria-label="Andere editie">
+      <?php foreach ($mergeCandidates as $c): ?>
+        <option value="<?= $c['id'] ?>"><?= $v->e($c['title'] . ($c['author'] !== '' ? ' — ' . $c['author'] : '') . ($c['format'] ? " ({$c['format']})" : '') . ($c['isbn'] ? " · {$c['isbn']}" : '') . ' · ' . App\Books::STATUSES[$c['status']]) ?></option>
+      <?php endforeach ?>
+    </select>
+    <button class="secondary">Hierbij voegen</button>
+  </form>
+  <?php else: ?><p class="muted">Geen boeken met dezelfde auteur of titel gevonden.</p><?php endif ?>
+  <p><a href="<?= $v->url('/duplicates') ?>">Alle mogelijke dubbele boeken bekijken</a></p>
+</section>

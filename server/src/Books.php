@@ -341,7 +341,12 @@ final class Books
     /** @return array<string, mixed>|null */
     public function findByIsbn(string $isbn): ?array
     {
-        $book = $this->query('SELECT * FROM books WHERE isbn = ? ORDER BY id LIMIT 1', [$isbn])->fetch();
+        // Also the ISBN of an edition that was merged into a book.
+        $book = $this->query(
+            'SELECT * FROM books b WHERE b.isbn = ? OR EXISTS (SELECT 1 FROM book_aliases a WHERE a.book_id = b.id AND a.isbn = ?)
+             ORDER BY b.isbn = ? DESC, b.id LIMIT 1',
+            [$isbn, $isbn, $isbn],
+        )->fetch();
         return $book ? self::cast($book) : null;
     }
 
@@ -355,9 +360,10 @@ final class Books
     {
         $collapse = static fn (string $s) => trim((string) preg_replace('/\s+/u', ' ', $s));
         $book = $this->query(
-            self::SELECT_BOOK . ' WHERE b.id != ? AND ((? IS NOT NULL AND b.isbn = ?) OR (b.title = ? AND b.author = ?))
+            self::SELECT_BOOK . ' WHERE b.id != ? AND ((? IS NOT NULL AND (b.isbn = ?
+                OR EXISTS (SELECT 1 FROM book_aliases a WHERE a.book_id = b.id AND a.isbn = ?))) OR (b.title = ? AND b.author = ?))
              ORDER BY b.id LIMIT 1',
-            [$exceptId ?? 0, $isbn, $isbn, $collapse($title), $collapse($author)],
+            [$exceptId ?? 0, $isbn, $isbn, $isbn, $collapse($title), $collapse($author)],
         )->fetch();
         return $book ? self::cast($book) : null;
     }
@@ -460,6 +466,159 @@ final class Books
             $columns = implode(', ', array_map(static fn (string $c) => "{$c} = ?", array_keys($details)));
             $this->query("UPDATE books SET {$columns} WHERE id = ?", [...array_values($details), $id]);
         }
+    }
+
+    /** Columns a merged book fills in when the one you keep has them empty. */
+    private const MERGE_FILL = [
+        'author', 'isbn', 'format', 'pages', 'rating', 'contributors', 'content_warnings', 'content_warning_description',
+        'series', 'series_number', 'publisher', 'published_year', 'language', 'description', 'genre', 'original_title',
+        'original_language', 'translator', 'first_published', 'awards', 'storygraph_id', 'wikidata_series',
+    ];
+
+    /**
+     * Merge another edition into a book: its reads, notes, loans and posts move over,
+     * empty fields are filled from it, shelves and moods are combined, and its ISBN and
+     * StoryGraph id are remembered so a scan or a new import finds this book. The other
+     * book is then deleted. Returns what changed, in Dutch.
+     *
+     * @return list<string>
+     */
+    public function merge(int $keepId, int $goneId): array
+    {
+        if ($keepId === $goneId) {
+            throw new InvalidArgumentException('Kies een ander boek om mee samen te voegen.');
+        }
+        $keep = $this->find($keepId) ?? throw new InvalidArgumentException('Boek niet gevonden.');
+        $gone = $this->find($goneId) ?? throw new InvalidArgumentException('Het andere boek bestaat niet (meer).');
+        $changes = [];
+        $this->db->beginTransaction();
+        try {
+            $moved = 0;
+            foreach (['`reads`', 'notes', 'loans', 'posts'] as $table) {
+                $moved += $this->query("UPDATE {$table} SET book_id = ? WHERE book_id = ?", [$keepId, $goneId])->rowCount();
+            }
+            if ($moved) {
+                $changes[] = $moved === 1 ? '1 leesmoment, notitie of uitlening' : "{$moved} leesmomenten, notities en uitleningen";
+            }
+            $this->query('UPDATE book_aliases SET book_id = ? WHERE book_id = ?', [$keepId, $goneId]);
+            if ($gone['isbn'] !== null && $gone['isbn'] !== $keep['isbn']) {
+                $this->query('INSERT INTO book_aliases (book_id, isbn) VALUES (?, ?)', [$keepId, $gone['isbn']]);
+            }
+            if (($gone['storygraph_id'] ?? null) !== null && ($keep['storygraph_id'] ?? null) !== null && $gone['storygraph_id'] !== $keep['storygraph_id']) {
+                $this->query('INSERT INTO book_aliases (book_id, storygraph_id) VALUES (?, ?)', [$keepId, $gone['storygraph_id']]);
+            }
+
+            $set = [];
+            foreach (self::MERGE_FILL as $column) {
+                $empty = ($keep[$column] ?? null) === null || $keep[$column] === '';
+                if ($empty && ($gone[$column] ?? null) !== null && $gone[$column] !== '') {
+                    $set[$column] = $gone[$column];
+                }
+            }
+            if (isset($set['isbn'])) {
+                // The ISBN moves over rather than staying behind as an alias.
+                $this->query('DELETE FROM book_aliases WHERE book_id = ? AND isbn = ?', [$keepId, $set['isbn']]);
+            }
+            foreach (['tags', 'moods'] as $column) {
+                $combined = self::normalizeTags(trim(($keep[$column] ?? '') . ', ' . ($gone[$column] ?? ''), ', '));
+                if ($combined !== ($keep[$column] ?? null)) {
+                    $set[$column] = $combined;
+                }
+            }
+            $keepReview = trim((string) ($keep['review'] ?? ''));
+            $goneReview = trim((string) ($gone['review'] ?? ''));
+            if ($goneReview !== '' && $goneReview !== $keepReview) {
+                $set['review'] = $keepReview === '' ? $goneReview : $keepReview . "
+
+" . $goneReview;
+            }
+            $details = $gone['details'] + $keep['details'];
+            if ($details !== $keep['details']) {
+                $set['details'] = json_encode($details, JSON_UNESCAPED_UNICODE);
+            }
+            // The furthest along of the two: reading, read, not finished, want to read.
+            $rank = ['reading' => 3, 'read' => 2, 'dnf' => 1, 'to-read' => 0];
+            if ($rank[$gone['status']] > $rank[$keep['status']]) {
+                $set['status'] = $gone['status'];
+            }
+            if ($gone['owned'] && !$keep['owned']) {
+                $set['owned'] = 1;
+            }
+            if ($gone['date_added'] < $keep['date_added']) {
+                $set['date_added'] = $gone['date_added'];
+            }
+            $this->query('DELETE FROM books WHERE id = ?', [$goneId]);
+            if ($set) {
+                $columns = implode(', ', array_map(static fn (string $c) => "{$c} = ?", array_keys($set)));
+                $this->query("UPDATE books SET {$columns} WHERE id = ?", [...array_values(array_map(
+                    static fn ($v) => is_bool($v) ? (int) $v : $v,
+                    $set,
+                )), $keepId]);
+                $labels = self::IMPORT_FIELDS + ['description' => 'beschrijving', 'genre' => 'genre', 'original_title' => 'oorspronkelijke titel',
+                    'translator' => 'vertaler', 'status' => 'status', 'owned' => 'in bezit', 'date_added' => 'datum toegevoegd'];
+                foreach (array_keys($set) as $column) {
+                    if (isset($labels[$column])) {
+                        $changes[] = $labels[$column];
+                    }
+                }
+            }
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+        return array_values(array_unique($changes));
+    }
+
+    /**
+     * Books that may be another edition of this one: the same author, or the same title
+     * or original title.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function mergeCandidates(array $book): array
+    {
+        $rows = $this->query(
+            self::SELECT_BOOK . ' WHERE b.id != ? AND ((b.author != \'\' AND b.author = ?) OR b.title = ? OR b.original_title = ?
+                OR (? IS NOT NULL AND b.title = ?))
+             ORDER BY b.title, b.id LIMIT 50',
+            [$book['id'], $book['author'], $book['title'], $book['title'], $book['original_title'] ?? null, $book['original_title'] ?? null],
+        )->fetchAll();
+        return array_map([self::class, 'cast'], $rows);
+    }
+
+    /**
+     * Pairs of books that look like the same book: the same author and title (without
+     * subtitle, ignoring case and punctuation), or one's original title is the other's
+     * title.
+     *
+     * @return list<array{0: array<string, mixed>, 1: array<string, mixed>}>
+     */
+    public function likelyDuplicates(): array
+    {
+        $books = array_map([self::class, 'cast'], $this->query(
+            'SELECT id, title, author, original_title, isbn, format, pages, rating, owned, status, date_added, series, series_number FROM books ORDER BY id',
+        )->fetchAll());
+        $groups = [];
+        foreach ($books as $book) {
+            $surnames = array_map(static fn (string $a) => (string) preg_replace('/^.* /', '', Wikidata::matchKey($a)), self::tagList($book['author']));
+            $author = $surnames[0] ?? '';
+            foreach ([$book['title'], $book['original_title']] as $title) {
+                $main = Wikidata::matchKey(trim((string) preg_split('/\s*[:(\[]/u', (string) $title)[0]));
+                if (mb_strlen($main) >= 3) {
+                    $groups[$author . '|' . $main][$book['id']] = $book;
+                }
+            }
+        }
+        $pairs = [];
+        foreach ($groups as $group) {
+            $group = array_values($group);
+            for ($i = 1; $i < count($group); $i++) {
+                $key = $group[0]['id'] . '-' . $group[$i]['id'];
+                $pairs[$key] ??= [$group[0], $group[$i]];
+            }
+        }
+        return array_values($pairs);
     }
 
     public function delete(int $id): void
@@ -828,6 +987,14 @@ final class Books
                 $changes[] = $label;
             }
         }
+        // Wikidata's id of the series, to find its other parts later; only when it's the
+        // series this book is in (a series of your own stays yours).
+        $qid = $info['wikidata_series'] ?? null;
+        $series = $set['series'] ?? $book['series'] ?? null;
+        if (is_string($qid) && preg_match('/^Q\d{1,12}$/', $qid) && empty($book['wikidata_series']) && is_string($series)
+            && Wikidata::matchKey($series) === Wikidata::matchKey((string) ($info['series'] ?? ''))) {
+            $set['wikidata_series'] = $qid;
+        }
         $columns = implode(', ', array_map(static fn (string $c) => "{$c} = ?", array_keys($set)));
         $this->query(
             'UPDATE books SET ' . ($columns !== '' ? $columns . ', ' : '') . 'enriched_at = NOW() WHERE id = ?',
@@ -939,7 +1106,11 @@ final class Books
         if ($id === null || $id === '') {
             return null;
         }
-        $book = $this->query(self::SELECT_BOOK . ' WHERE b.storygraph_id = ? ORDER BY b.id LIMIT 1', [$id])->fetch();
+        $book = $this->query(
+            self::SELECT_BOOK . ' WHERE b.storygraph_id = ? OR EXISTS (SELECT 1 FROM book_aliases a WHERE a.book_id = b.id AND a.storygraph_id = ?)
+             ORDER BY b.storygraph_id = ? DESC, b.id LIMIT 1',
+            [$id, $id, $id],
+        )->fetch();
         return $book ? self::cast($book) : null;
     }
 

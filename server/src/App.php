@@ -23,6 +23,7 @@ final class App
     public readonly Covers $covers;
     public readonly Catalog $catalog;
     public readonly Loans $loans;
+    public readonly SeriesParts $seriesParts;
     /** The request being handled, for absolute URLs. */
     private ?Request $request = null;
     private Router $router;
@@ -34,6 +35,7 @@ final class App
         $this->mastodon = Mastodon::fromConfig($config);
         $this->catalog = new Catalog($config);
         $this->loans = new Loans($db);
+        $this->seriesParts = new SeriesParts($db, $this->books, $this->catalog->wikidata());
         $this->covers = new Covers(
             $config->get('COVERS_DIR', dirname(__DIR__) . '/var/covers'),
             [$this->catalog, 'cover'],
@@ -79,6 +81,12 @@ final class App
         $r->add('POST', '/books/{id}/enrich', [$web, 'enrich']);
         $r->add('POST', '/import/enrich', [$web, 'enrichAll']);
         $r->add('POST', '/collections/rename', [$web, 'renameShelf']);
+        $r->add('GET', '/series', [$web, 'seriesSuggestions']);
+        $r->add('POST', '/series/refresh', [$web, 'refreshSeries']);
+        $r->add('POST', '/series/add', [$web, 'addSeriesPart']);
+        $r->add('POST', '/series/dismiss', [$web, 'dismissSeriesPart']);
+        $r->add('POST', '/books/{id}/merge', [$web, 'merge']);
+        $r->add('GET', '/duplicates', [$web, 'duplicates']);
         $r->add('POST', '/reads/{id}/delete', [$web, 'deleteRead']);
         $r->add('GET', '/stats', [$web, 'stats']);
         $r->add('POST', '/stats/goal', [$web, 'setGoal']);

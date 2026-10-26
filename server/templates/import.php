@@ -26,6 +26,11 @@
 </section>
 <?php endif ?>
 
+<section class="card">
+  <h2>Dubbele boeken</h2>
+  <p>Hetzelfde boek in twee edities, of twee keer geïmporteerd? <a href="<?= $v->url('/duplicates') ?>">Bekijk de mogelijke dubbele boeken</a> en voeg ze samen.</p>
+</section>
+
 <?php if (!empty($preview)): ?>
 <section class="card">
   <h2>Voorbeeld: dit gaat er gebeuren</h2>
