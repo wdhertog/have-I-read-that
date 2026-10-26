@@ -92,6 +92,7 @@ final class Api
             return $this->notFound();
         }
         $this->app->books->delete($id);
+        $this->app->covers->deleteUpload($id);
         return Response::json(['deleted' => true]);
     }
 
@@ -267,7 +268,7 @@ final class Api
         $out['last_finished'] = $book['last_finished'] ?? null;
         $out['progress_page'] = $book['progress_page'] ?? null;
         $out['progress_percent'] = $book['progress_percent'] ?? null;
-        $out['cover_url'] = OpenLibrary::coverUrl($book['isbn'] ?? null);
+        $out['cover_url'] = $this->app->coverUrl($book, absolute: true);
         return $out;
     }
 

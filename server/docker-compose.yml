@@ -12,6 +12,8 @@ services:
       # Requests arrive through Docker's network from your reverse proxy; trust its
       # X-Forwarded-For so the login limit sees real visitor addresses.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+    volumes:
+      - appdata:/var/www/html/var   # sessions, covers and back-ups
     depends_on:
       - db
 
@@ -28,3 +30,4 @@ services:
 
 volumes:
   db:
+  appdata:

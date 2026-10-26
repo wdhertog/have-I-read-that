@@ -143,14 +143,7 @@ class DuplicateException(message: String, val existing: Book) : ApiException(mes
 
 /** Talks to the /api endpoints of the PHP server. */
 class ApiClient(serverUrl: String, private val token: String) {
-    // The token gives full access, so it only ever travels over HTTPS.
-    private val base: HttpUrl = serverUrl.trim().trimEnd('/').let {
-        when {
-            it.startsWith("https://", ignoreCase = true) -> it
-            it.contains("://") -> throw ApiException("Gebruik een https://-adres.")
-            else -> "https://$it"
-        }
-    }.toHttpUrl()
+    private val base: HttpUrl = baseUrl(serverUrl)
 
     suspend fun me(): Me = get("api/me")
 
@@ -223,6 +216,15 @@ class ApiClient(serverUrl: String, private val token: String) {
     }
 
     companion object {
+        // The token gives full access, so it only ever travels over HTTPS.
+        fun baseUrl(serverUrl: String): HttpUrl = serverUrl.trim().trimEnd('/').let {
+            when {
+                it.startsWith("https://", ignoreCase = true) -> it
+                it.contains("://") -> throw ApiException("Gebruik een https://-adres.")
+                else -> "https://$it"
+            }
+        }.toHttpUrl()
+
         private val JSON = "application/json; charset=utf-8".toMediaType()
         private val http = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)

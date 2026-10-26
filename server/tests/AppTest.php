@@ -29,6 +29,7 @@ final class AppTest extends TestCase
             'DB_NAME' => (string) getenv('TEST_DB_NAME'),
             'DB_USER' => (string) getenv('TEST_DB_USER'),
             'DB_PASSWORD' => (string) getenv('TEST_DB_PASSWORD'),
+            'COVERS_DIR' => sys_get_temp_dir() . '/hirt-test-covers',
         ];
     }
 
@@ -41,7 +42,7 @@ final class AppTest extends TestCase
             self::markTestSkipped('No test database: ' . $e->getMessage());
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['posts', '`reads`', 'books', 'api_tokens', 'login_attempts', 'goals', 'schema_migrations'] as $table) {
+        foreach (['posts', '`reads`', 'books', 'api_tokens', 'login_attempts', 'goals', 'settings', 'schema_migrations'] as $table) {
             $this->db->exec("DROP TABLE IF EXISTS {$table}");
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 1');

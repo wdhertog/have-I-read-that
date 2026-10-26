@@ -87,3 +87,7 @@ progress { accent-color: var(--accent); width: 140px; height: 10px; vertical-ali
 .progress-line { display: flex; gap: 8px; align-items: center; font-size: .85rem; margin-top: 4px; }
 .goal { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 12px; }
 .goal progress { width: 220px; }
+.qr { width: 220px; max-width: 100%; background: #fff; padding: 4px; border-radius: 8px; margin: 8px 0; }
+.qr svg { display: block; width: 100%; height: auto; }
+.row label.check { margin: 0; flex: none; }
+.row label.check input { flex: none; min-width: 0; }

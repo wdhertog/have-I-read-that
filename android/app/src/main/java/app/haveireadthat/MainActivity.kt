@@ -1,5 +1,6 @@
 package app.haveireadthat
 
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -20,6 +21,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil.Coil
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import okhttp3.OkHttpClient
 import app.haveireadthat.ui.AddScreen
 import app.haveireadthat.ui.BookScreen
 import app.haveireadthat.ui.EditScreen
@@ -29,6 +34,7 @@ import app.haveireadthat.ui.SetupScreen
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Coil.setImageLoader(coverLoader(applicationContext))
         enableEdgeToEdge()
         setContent { AppTheme { App() } }
     }
@@ -89,4 +95,29 @@ fun AppTheme(content: @Composable () -> Unit) {
         else -> lightColorScheme(primary = Color(0xFF6D4AFF))
     }
     MaterialTheme(colorScheme = colors, content = content)
+}
+
+/**
+ * Covers come from your own server; private ones need the token. It is only added
+ * to HTTPS requests for that exact server, never to other hosts.
+ */
+private fun coverLoader(context: Context) = ImageLoaderFactory {
+    ImageLoader.Builder(context)
+        .okHttpClient {
+            OkHttpClient.Builder()
+                .followSslRedirects(false)
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val settings = Settings(context)
+                    val server = runCatching { ApiClient.baseUrl(settings.serverUrl) }.getOrNull()
+                    val ours = server != null && settings.token.isNotBlank() && request.url.isHttps &&
+                        request.url.host == server.host && request.url.port == server.port
+                    chain.proceed(
+                        if (ours) request.newBuilder().header("Authorization", "Bearer ${settings.token}").build()
+                        else request
+                    )
+                }
+                .build()
+        }
+        .build()
 }

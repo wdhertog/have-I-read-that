@@ -7,7 +7,6 @@ namespace App\Controller;
 use App\App;
 use App\Books;
 use App\Mastodon;
-use App\OpenLibrary;
 use App\Request;
 use App\Response;
 
@@ -53,7 +52,7 @@ final class Shelf
             'meta' => [
                 'title' => $book['title'],
                 'description' => mb_strimwidth($description, 0, 300, '…'),
-                'image' => OpenLibrary::coverUrl($book['isbn'], 'L'),
+                'image' => $this->app->coverUrl($book, absolute: true),
                 'url' => $this->app->absoluteUrl($request, "/boek/{$id}"),
             ],
         ]);
@@ -88,5 +87,32 @@ final class Shelf
             . '<language>nl</language>' . "\n" . $items
             . '</channel></rss>';
         return new Response($xml, 200, ['Content-Type' => 'application/rss+xml; charset=utf-8']);
+    }
+
+    /**
+     * A cover image from this server. Covers of books on the public page are public;
+     * the rest only for you (logged in, or the app with its token).
+     */
+    public function cover(Request $request, int $id): Response
+    {
+        $book = $this->app->books->find($id);
+        $public = $book && $this->app->publicPage() && in_array($book['status'], Books::PUBLIC_STATUSES, true);
+        $allowed = $public || $this->app->auth->loggedIn() || $this->app->auth->checkToken($request->header('authorization')) !== null;
+        $image = null;
+        if ($book && $allowed) {
+            try {
+                $image = $this->app->covers->image($book);
+            } catch (\RuntimeException $e) {
+                error_log('Cover unavailable: ' . $e->getMessage());
+            }
+        }
+        if ($image === null) {
+            return new Response('Geen omslag', 404, ['Content-Type' => 'text/plain; charset=utf-8', 'Cache-Control' => 'no-store']);
+        }
+        return new Response($image['bytes'], 200, [
+            'Content-Type' => $image['mime'],
+            // The URL changes with the cover (?v=…), so it may be cached for long.
+            'Cache-Control' => ($public ? 'public' : 'private') . ', max-age=604800, immutable',
+        ]);
     }
 }

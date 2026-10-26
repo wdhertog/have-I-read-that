@@ -41,7 +41,7 @@ final class StepThreeTest extends TestCase
             self::markTestSkipped('No test database: ' . $e->getMessage());
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['posts', '`reads`', 'books', 'api_tokens', 'login_attempts', 'goals', 'schema_migrations'] as $table) {
+        foreach (['posts', '`reads`', 'books', 'api_tokens', 'login_attempts', 'goals', 'settings', 'schema_migrations'] as $table) {
             $this->db->exec("DROP TABLE IF EXISTS {$table}");
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -60,6 +60,7 @@ final class StepThreeTest extends TestCase
             'DB_NAME' => (string) getenv('TEST_DB_NAME'),
             'DB_USER' => (string) getenv('TEST_DB_USER'),
             'DB_PASSWORD' => (string) getenv('TEST_DB_PASSWORD'),
+            'COVERS_DIR' => sys_get_temp_dir() . '/hirt-test-covers',
         ]);
     }
 
@@ -107,7 +108,7 @@ final class StepThreeTest extends TestCase
         $id = $this->addBook('Gelezen');
         $private = $this->addBook('Verlanglijst', 'to-read');
         $template = ['MASTODON_TEMPLATE_FINISHED' => '{title} {url}', 'APP_URL' => 'https://lezen.example/'];
-        $tooter = new Tooter($this->books, MastodonServerTest::client(), $this->config($template));
+        $tooter = new Tooter($this->books, MastodonServerTest::client(), $this->config($template), static fn () => null);
         self::assertSame("Gelezen https://lezen.example/boek/{$id}", $tooter->compose($this->books->find($id), 'finished'));
         self::assertSame('Verlanglijst', $tooter->compose($this->books->find($private), 'finished'));
     }
@@ -120,9 +121,12 @@ final class StepThreeTest extends TestCase
         $this->addBook('Vorig jaar', 'read', ['rating' => '5', 'finished' => '2024-07-01']);
 
         $fetched = [];
-        $review = new YearReview($this->books, MastodonServerTest::client(), static function (?string $isbn) use (&$fetched) {
-            $fetched[] = $isbn;
-            return self::cover($isbn === '9780000000001' ? 400 : 180, 270);
+        $review = new YearReview($this->books, MastodonServerTest::client(), static function (array $book) use (&$fetched) {
+            if (!$book['isbn']) {
+                return null;
+            }
+            $fetched[] = $book['isbn'];
+            return self::cover($book['isbn'] === '9780000000001' ? 400 : 180, 270);
         });
         $text = $review->compose(2025);
         self::assertStringContainsString("3 boeken, 1.300 pagina's", $text);
@@ -150,7 +154,7 @@ final class StepThreeTest extends TestCase
         self::assertSame(200, $page->status);
         self::assertStringContainsString('<meta property="og:title" content="Gelezen &lt;boek&gt;">', $page->body);
         self::assertStringContainsString("content=\"https://lezen.example/boek/{$read}\"", $page->body);
-        self::assertStringContainsString('9789038801969-L.jpg', $page->body);
+        self::assertStringContainsString("content=\"https://lezen.example/cover/{$read}?v=9789038801969\"", $page->body);
         self::assertArrayNotHasKey('Cache-Control', $page->headers);
         self::assertSame(404, $app->handle(new Request('GET', "/boek/{$wish}"))->status);
 

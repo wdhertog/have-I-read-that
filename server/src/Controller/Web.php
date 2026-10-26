@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\App;
 use App\Auth;
+use App\Backup;
 use App\Books;
 use App\Export;
 use App\MastodonException;
@@ -13,6 +14,7 @@ use App\OpenLibrary;
 use App\Request;
 use App\Response;
 use App\StoryGraph;
+use App\Totp;
 use InvalidArgumentException;
 
 /**
@@ -44,6 +46,11 @@ final class Web
         }
         $password = $request->input('password', '');
         if (is_string($password) && $auth->checkPassword($password)) {
+            if ($auth->twoFactorEnabled()) {
+                // The attempt stays counted until the code is right too.
+                $auth->beginSecondFactor();
+                return Response::redirect($this->app->url('/login/code', ['next' => $next]));
+            }
             $auth->clearAttempts($request->ip);
             $auth->login();
             return Response::redirect($this->app->url($next ?? '/books'));
@@ -51,6 +58,37 @@ final class Web
         sleep(1);
         $this->app->flash('error', 'Onjuist wachtwoord.');
         return Response::redirect($this->app->url('/login', ['next' => $next]));
+    }
+
+    public function codeForm(Request $request): Response
+    {
+        if (!$this->app->auth->secondFactorPending()) {
+            return Response::redirect($this->app->url('/login'));
+        }
+        return $this->app->render('login_code');
+    }
+
+    public function code(Request $request): Response
+    {
+        $auth = $this->app->auth;
+        $next = Auth::safeRedirectPath($request->query('next'));
+        if (!$auth->secondFactorPending()) {
+            $this->app->flash('error', 'Log opnieuw in; de vorige poging is verlopen.');
+            return Response::redirect($this->app->url('/login', ['next' => $next]));
+        }
+        if (!$auth->registerAttempt($request->ip)) {
+            $this->app->flash('error', 'Te veel mislukte pogingen. Probeer het over een kwartier opnieuw.');
+            return Response::redirect($this->app->url('/login/code', ['next' => $next]));
+        }
+        $code = $request->input('code');
+        if (is_string($code) && $auth->verifySecondFactor($code)) {
+            $auth->clearAttempts($request->ip);
+            $auth->login();
+            return Response::redirect($this->app->url($next ?? '/books'));
+        }
+        sleep(1);
+        $this->app->flash('error', 'Onjuiste code.');
+        return Response::redirect($this->app->url('/login/code', ['next' => $next]));
     }
 
     public function logout(Request $request): Response
@@ -170,6 +208,12 @@ final class Web
         }
         try {
             $this->app->books->update($id, Books::validate($request->post));
+            $upload = $request->files['cover'] ?? null;
+            if (is_array($upload) && ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+                $this->app->covers->saveUpload($id, $upload['tmp_name']);
+            } elseif ($request->input('remove_cover') === 'on') {
+                $this->app->covers->deleteUpload($id);
+            }
         } catch (InvalidArgumentException $e) {
             $this->app->flash('error', $e->getMessage());
             return $this->app->render('book_form', ['book' => $request->post, 'edit' => true, 'id' => $id], 422);
@@ -181,6 +225,7 @@ final class Web
     public function delete(Request $request, int $id): Response
     {
         $this->app->books->delete($id);
+        $this->app->covers->deleteUpload($id);
         $this->app->flash('ok', 'Boek verwijderd.');
         return Response::redirect($this->app->url('/books'));
     }
@@ -377,8 +422,13 @@ final class Web
     }
 
     /** @param array<string, mixed>|null $account */
-    private function renderSettings(Request $request, ?array $account = null, ?string $newToken = null): Response
+    /**
+     * @param array<string, mixed>|null $account
+     * @param list<string>|null $recoveryCodes
+     */
+    private function renderSettings(Request $request, ?array $account = null, ?string $newToken = null, ?array $recoveryCodes = null): Response
     {
+        $setupSecret = $_SESSION['totp_setup'] ?? null;
         $sample = ['title' => 'De avonden', 'author' => 'Gerard Reve', 'rating' => 4.5,
                    'review' => 'Een prachtig boek over verveling.', 'isbn' => '9789023417069'];
         return $this->app->render('settings', [
@@ -389,7 +439,53 @@ final class Web
             'tokens' => $this->app->auth->tokens(),
             'newToken' => $newToken,
             'serverUrl' => $this->serverUrl($request),
+            'twoFactor' => $this->app->auth->twoFactorEnabled(),
+            'recoveryLeft' => $this->app->auth->recoveryCodesLeft(),
+            'setupSecret' => is_string($setupSecret) ? $setupSecret : null,
+            'setupUri' => is_string($setupSecret)
+                ? Totp::uri($setupSecret, $request->header('host') ?? 'boeken', 'Have I read that')
+                : null,
+            'recoveryCodes' => $recoveryCodes,
         ]);
+    }
+
+    public function startTwoFactor(Request $request): Response
+    {
+        $_SESSION['totp_setup'] = Totp::generateSecret();
+        return $this->renderSettings($request);
+    }
+
+    public function enableTwoFactor(Request $request): Response
+    {
+        $secret = $_SESSION['totp_setup'] ?? null;
+        $code = $request->input('code');
+        if (!is_string($secret) || !is_string($code) || Totp::verify($secret, $code) === null) {
+            $this->app->flash('error', 'Die code klopt niet. Controleer de tijd op je telefoon en probeer het opnieuw.');
+            return $this->renderSettings($request);
+        }
+        unset($_SESSION['totp_setup']);
+        $codes = $this->app->auth->enableTwoFactor($secret);
+        // Turning it on shouldn't log you out: refresh this session's fingerprint.
+        $this->app->auth->login();
+        $this->app->flash('ok', 'Tweestapsverificatie staat aan. Bewaar de herstelcodes hieronder.');
+        return $this->renderSettings($request, null, null, $codes);
+    }
+
+    public function disableTwoFactor(Request $request): Response
+    {
+        $code = $request->input('code');
+        if (!is_string($code) || !$this->app->auth->verifySecondFactor($code)) {
+            $this->app->flash('error', 'Die code klopt niet; tweestapsverificatie staat nog aan.');
+        } else {
+            $this->app->auth->disableTwoFactor();
+            $this->app->flash('ok', 'Tweestapsverificatie staat uit.');
+        }
+        return Response::redirect($this->app->url('/settings'));
+    }
+
+    public function backup(Request $request): Response
+    {
+        return $this->download((new Backup($this->app->books->db()))->toString(), 'application/sql', 'sql');
     }
 
     public function testMastodon(Request $request): Response
@@ -407,7 +503,7 @@ final class Web
     public function createToken(Request $request): Response
     {
         $name = $request->input('name');
-        $token = $this->app->auth->createToken(is_string($name) ? $name : '');
+        $token = $this->app->auth->createToken(is_string($name) ? $name : '', $request->input('read_only') === 'on' ? 'read' : 'full');
         $this->app->flash('ok', 'Token aangemaakt. Kopieer het nu: het wordt maar één keer getoond.');
         return $this->renderSettings($request, null, $token);
     }
