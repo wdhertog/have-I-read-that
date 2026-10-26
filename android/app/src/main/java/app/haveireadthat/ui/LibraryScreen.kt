@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -54,7 +55,7 @@ import app.haveireadthat.Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, onLogout: () -> Unit) {
+fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, onLoans: () -> Unit, onLogout: () -> Unit) {
     val context = LocalContext.current
     val repository = remember { Repository(context) }
     val scope = rememberCoroutineScope()
@@ -104,6 +105,9 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
             TopAppBar(
                 title = { Text("Boeken") },
                 actions = {
+                    IconButton(onClick = onLoans) {
+                        Icon(Icons.Default.Person, contentDescription = "Uitgeleend")
+                    }
                     IconButton(onClick = onLogout) {
                         Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Uitloggen")
                     }
@@ -235,6 +239,7 @@ private fun BookRow(book: Book, onClick: () -> Unit) {
                 book.series?.let { s -> s + (book.seriesNumber?.let { " #${formatNumber(it)}" } ?: "") },
                 stars(book.rating).ifEmpty { null },
                 book.lastFinished,
+                book.lentTo?.let { "📕 bij $it" },
             )
             Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (book.status == "reading") ProgressLine(book)

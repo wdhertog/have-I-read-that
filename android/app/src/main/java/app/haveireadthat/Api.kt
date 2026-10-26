@@ -52,8 +52,13 @@ data class Book(
     @SerialName("progress_percent") val progressPercent: Int? = null,
     val series: String? = null,
     @SerialName("series_number") val seriesNumber: Double? = null,
+    val publisher: String? = null,
+    @SerialName("published_year") val publishedYear: Int? = null,
+    @SerialName("lent_to") val lentTo: String? = null,
+    @SerialName("lent_since") val lentSince: String? = null,
     val reads: List<Read> = emptyList(),
     val notes: List<Note> = emptyList(),
+    val loans: List<Loan> = emptyList(),
     val posts: List<Post> = emptyList(),
 )
 
@@ -65,6 +70,30 @@ data class Note(
     val page: Int? = null,
     @SerialName("public") val isPublic: Boolean = false,
 )
+
+@Serializable
+data class Loan(
+    val id: Int,
+    @SerialName("book_id") val bookId: Int = 0,
+    val borrower: String,
+    @SerialName("lent_on") val lentOn: String,
+    @SerialName("returned_on") val returnedOn: String? = null,
+    val note: String? = null,
+    val days: Int = 0,
+    val title: String? = null,
+)
+
+@Serializable
+data class Person(val name: String, val current: List<Loan> = emptyList(), val history: List<Loan> = emptyList())
+
+@Serializable
+data class LoansResponse(val people: List<Person> = emptyList(), val borrowers: List<String> = emptyList())
+
+@Serializable
+data class LendRequest(val borrower: String, val date: String, val note: String? = null)
+
+@Serializable
+data class ReturnRequest(val date: String)
 
 @Serializable
 data class NewNote(val kind: String, val text: String, val page: Int? = null, @SerialName("public") val isPublic: Boolean = false)
@@ -131,6 +160,8 @@ data class NewBook(
     val owned: Boolean = false,
     val series: String? = null,
     @SerialName("series_number") val seriesNumber: Double? = null,
+    val publisher: String? = null,
+    @SerialName("published_year") val publishedYear: Int? = null,
     val toot: Boolean = false,
     @SerialName("allow_duplicate") val allowDuplicate: Boolean = false,
 )
@@ -205,6 +236,13 @@ class ApiClient(serverUrl: String, private val token: String) {
     suspend fun addNote(bookId: Int, note: NewNote): BookResponse = post("api/books/$bookId/notes", json.encodeToString(note))
 
     suspend fun deleteNote(noteId: Int): BookResponse = post("api/notes/$noteId/delete", "{}")
+
+    suspend fun loans(): LoansResponse = get("api/loans")
+
+    suspend fun lend(bookId: Int, request: LendRequest): BookResponse = post("api/books/$bookId/lend", json.encodeToString(request))
+
+    suspend fun giveBack(bookId: Int, request: ReturnRequest): BookResponse =
+        post("api/books/$bookId/return", json.encodeToString(request))
 
     private fun url(path: String): HttpUrl = base.newBuilder().addPathSegments(path).build()
 

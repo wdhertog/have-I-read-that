@@ -37,6 +37,7 @@ import app.haveireadthat.ui.AddScreen
 import app.haveireadthat.ui.BookScreen
 import app.haveireadthat.ui.EditScreen
 import app.haveireadthat.ui.LibraryScreen
+import app.haveireadthat.ui.LoansScreen
 import app.haveireadthat.ui.SetupScreen
 
 class MainActivity : ComponentActivity() {
@@ -83,6 +84,7 @@ fun App(shared: String? = null) {
                 settings = settings,
                 onOpen = { id -> nav.navigate("book/$id") },
                 onAdd = { nav.navigate("add") },
+                onLoans = { nav.navigate("loans") },
                 onLogout = {
                     settings.clear()
                     Repository.forget(context)
@@ -98,6 +100,9 @@ fun App(shared: String? = null) {
                 onBack = { nav.popBackStack() },
                 onEdit = { id -> nav.navigate("edit/$id") },
             )
+        }
+        composable("loans") {
+            LoansScreen(onBack = { nav.popBackStack() }, onOpen = { id -> nav.navigate("book/$id") })
         }
         composable("edit/{id}", arguments = listOf(navArgument("id") { type = NavType.IntType })) { entry ->
             EditScreen(settings, entry.arguments?.getInt("id") ?: 0, onDone = { nav.popBackStack() })
