@@ -1,5 +1,5 @@
 -- Failed logins per client IP, for rate limiting.
-CREATE TABLE login_attempts (
+CREATE TABLE IF NOT EXISTS login_attempts (
     id            INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     ip            VARCHAR(45) NOT NULL,
     attempted_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
