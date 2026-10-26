@@ -692,20 +692,38 @@ final class Books
             foreach ($names as $group => $list) {
                 foreach ($list ?: ['(onbekend)'] as $name) {
                     $key = mb_strtolower($name);
-                    $groups[$group][$key] ??= ['name' => $name, 'books' => 0, 'pages' => 0];
+                    $groups[$group][$key] ??= ['spellings' => [], 'books' => 0, 'pages' => 0];
+                    $groups[$group][$key]['spellings'][$name] = ($groups[$group][$key]['spellings'][$name] ?? 0) + 1;
                     $groups[$group][$key]['books']++;
                     $groups[$group][$key]['pages'] += (int) ($book['pages'] ?? 0);
                 }
             }
         }
         foreach ($groups as $group => $list) {
-            uasort($list, static fn (array $a, array $b) => [$b['pages'], $b['books']] <=> [$a['pages'], $a['books']]);
-            $groups[$group] = [];
+            $rows = [];
             foreach ($list as $row) {
-                $groups[$group][(string) $row['name']] = ['books' => $row['books'], 'pages' => $row['pages']];
+                $rows[] = ['name' => self::spelling($row['spellings'])] + $row;
+            }
+            usort($rows, static fn (array $a, array $b) => [$b['pages'], $b['books'], $a['name']] <=> [$a['pages'], $a['books'], $b['name']]);
+            $groups[$group] = [];
+            foreach ($rows as $row) {
+                $groups[$group][$row['name']] = ['books' => $row['books'], 'pages' => $row['pages']];
             }
         }
         return $groups;
+    }
+
+    /**
+     * Which way of writing a name to show ("fantasy" or "Fantasy"): the one used most,
+     * else the first in alphabetical order, so it doesn't depend on the database's order.
+     *
+     * @param array<array-key, int> $spellings spelling => times used
+     */
+    private static function spelling(array $spellings): string
+    {
+        $names = array_map('strval', array_keys($spellings));
+        usort($names, static fn (string $a, string $b) => [$spellings[$b], $a] <=> [$spellings[$a], $b]);
+        return $names[0];
     }
 
     public function goal(int $year): ?int
@@ -1074,20 +1092,20 @@ final class Books
     public function topGenres(int $limit = 10): array
     {
         $counts = [];
-        $names = [];
+        $spellings = [];
         foreach ($this->query("SELECT genre FROM books WHERE status = 'read' AND genre IS NOT NULL AND genre != ''")->fetchAll(PDO::FETCH_COLUMN) as $genres) {
             foreach (self::tagList($genres) as $genre) {
                 $key = mb_strtolower($genre);
-                $names[$key] ??= $genre;
+                $spellings[$key][$genre] = ($spellings[$key][$genre] ?? 0) + 1;
                 $counts[$key] = ($counts[$key] ?? 0) + 1;
             }
         }
-        arsort($counts);
         $top = [];
-        foreach (array_slice($counts, 0, $limit, true) as $key => $n) {
-            $top[$names[$key]] = $n;
+        foreach ($counts as $key => $n) {
+            $top[self::spelling($spellings[(string) $key])] = $n;
         }
-        return $top;
+        uksort($top, static fn ($a, $b) => [$top[$b], (string) $a] <=> [$top[$a], (string) $b]);
+        return array_slice($top, 0, $limit, true);
     }
 
     public function topAuthors(int $limit = 10): array

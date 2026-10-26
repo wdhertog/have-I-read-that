@@ -111,7 +111,7 @@ final class PagesTest extends TestCase
         $this->db->exec("UPDATE books SET language = 'nl' WHERE id IN ({$a}, {$c})");
         $this->db->exec("UPDATE books SET language = 'en' WHERE id = {$b}");
         $groups = $this->app->books->pagesBreakdown(2025);
-        self::assertSame(['fantasy' => ['books' => 2, 'pages' => 500], 'jeugd' => ['books' => 1, 'pages' => 300], '(onbekend)' => ['books' => 1, 'pages' => 100]], $groups['genre']);
+        self::assertSame(['Fantasy' => ['books' => 2, 'pages' => 500], 'jeugd' => ['books' => 1, 'pages' => 300], '(onbekend)' => ['books' => 1, 'pages' => 100]], $groups['genre']);
         self::assertSame(['bieb' => ['books' => 2, 'pages' => 400], '(onbekend)' => ['books' => 1, 'pages' => 200], 'cadeau' => ['books' => 1, 'pages' => 100]], $groups['shelf']);
         self::assertSame(['Nederlands' => ['books' => 2, 'pages' => 400], 'Engels' => ['books' => 1, 'pages' => 200]], $groups['language']);
 
