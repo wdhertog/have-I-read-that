@@ -198,7 +198,11 @@ bewerken onder *Bewerken → Meer gegevens*. Controleren wat de bronnen vanaf je
 server teruggeven: `php bin/lookup.php 9789023417069`.
 
 Onder *Statistieken* zie je hoeveel je per (oorspronkelijke) taal las, hoeveel daarvan
-in vertaling, en je meest gelezen genres.
+in vertaling, en je meest gelezen genres. Per jaar ook het aantal pagina's per genre,
+plank en taal, en pagina's per dag: elke keer dat je je voortgang bijwerkt of een
+boek uitleest, onthoudt de app tot welke pagina je die dag kwam. Boeken van vóór dat
+dagboek (en je import) worden geschat: gelijk verdeeld over de dagen tussen begin- en
+einddatum.
 
 ## Jaaroverzicht
 

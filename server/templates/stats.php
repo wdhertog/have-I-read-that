@@ -53,6 +53,69 @@
 </section>
 <?php endif ?>
 
+<?php if ($daily['total'] > 0): ?>
+<section class="card">
+  <h2>Pagina's per dag in <?= $year ?></h2>
+  <p>
+    <strong><?= number_format($daily['total'], 0, ',', '.') ?></strong> pagina's gelezen,
+    gemiddeld <strong><?= number_format($daily['average'], 1, ',', '.') ?></strong> per dag<?= (int) date('Y') === $year ? ' tot nu toe' : '' ?>.
+    <?php if ($daily['best']): ?>Beste dag: <?= $daily['best']['pages'] ?> pagina's op <?= $v->e(date('j-n-Y', strtotime($daily['best']['day']))) ?>.<?php endif ?>
+  </p>
+  <?php $months = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']; $maxMonth = max($daily['months']) ?: 1; ?>
+  <table class="bars">
+    <?php foreach ($daily['months'] as $m => $pages): ?>
+      <?php if ($pages > 0): ?>
+      <tr>
+        <th><?= $months[$m - 1] ?></th>
+        <td class="bar"><span data-width="<?= round(100 * $pages / $maxMonth, 1) ?>"></span></td>
+        <td><?= number_format($pages, 0, ',', '.') ?> pag.</td>
+        <td class="muted">⌀ <?= number_format($pages / ((int) date('Y') === $year && (int) date('n') === $m ? (int) date('j') : (int) date('t', mktime(0, 0, 0, $m, 1, $year))), 1, ',', '.') ?> per dag</td>
+      </tr>
+      <?php endif ?>
+    <?php endforeach ?>
+  </table>
+  <?php if ($daily['recent'] && array_sum($daily['recent']) > 0): ?>
+    <?php $maxDay = max($daily['recent']) ?: 1; ?>
+    <h3>Laatste twee weken</h3>
+    <div class="days">
+      <?php foreach ($daily['recent'] as $day => $pages): ?>
+        <?php $guess = $daily['recentEstimated'][$day] ?? 0; ?>
+        <div title="<?= $v->e(date('j-n', strtotime($day)) . ": {$pages} pagina's" . ($guess ? " (waarvan {$guess} geschat)" : '')) ?>">
+          <span class="day-track"><span class="day-bar<?= $guess * 2 > $pages ? ' estimated' : '' ?>" data-height="<?= round(100 * $pages / $maxDay, 1) ?>"></span></span>
+          <small><?= $pages ?: '' ?></small>
+          <small class="muted"><?= date('j', strtotime($day)) ?></small>
+        </div>
+      <?php endforeach ?>
+    </div>
+  <?php endif ?>
+  <p class="muted">Bijgehouden als je je voortgang bijwerkt of een boek uitleest.<?= $daily['estimated'] ? ' Boeken zonder dagboek (zoals je import) zijn geschat: gelijk verdeeld over de dagen tussen begin en einde, of op de einddag als de begindatum ontbreekt (lichter gekleurd).' : '' ?></p>
+</section>
+<?php endif ?>
+
+<?php if (array_filter($breakdown)): ?>
+<section class="card">
+  <h2>Pagina's in <?= $year ?></h2>
+  <div class="three">
+    <?php foreach (['genre' => 'Per genre', 'shelf' => 'Per plank', 'language' => 'Per taal'] as $group => $title): ?>
+      <?php if ($breakdown[$group]): ?>
+      <div>
+        <h3><?= $title ?></h3>
+        <table>
+          <?php foreach (array_slice($breakdown[$group], 0, 10, true) as $name => $row): ?>
+            <tr>
+              <td><?= $group === 'language' || $name === '(onbekend)' ? $v->e($name) : '<a href="' . $v->url('/books', ['q' => $name]) . '">' . $v->e($name) . '</a>' ?></td>
+              <td class="num"><?= number_format($row['pages'], 0, ',', '.') ?> pag.</td>
+              <td class="num muted"><?= $row['books'] ?> <?= $row['books'] === 1 ? 'boek' : 'boeken' ?></td>
+            </tr>
+          <?php endforeach ?>
+        </table>
+      </div>
+      <?php endif ?>
+    <?php endforeach ?>
+  </div>
+</section>
+<?php endif ?>
+
 <?php if ($languages || $genres): ?>
 <div class="two">
 <?php if ($languages): ?>

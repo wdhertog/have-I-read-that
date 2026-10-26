@@ -19,6 +19,9 @@ document.addEventListener('error', (event) => {
 document.querySelectorAll('[data-width]').forEach((el) => {
   el.style.width = el.dataset.width + '%';
 });
+document.querySelectorAll('[data-height]').forEach((el) => {
+  el.style.height = el.dataset.height + '%';
+});
 
 // QR code for setting up two-step verification (library loaded only on that page).
 const qrTarget = document.getElementById('totp-qr');
