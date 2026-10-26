@@ -25,6 +25,7 @@
           <?php if ($b['rating']): ?><span class="stars"><?= $v->stars($b['rating']) ?></span><?php endif ?>
           <?php if ($b['last_finished']): ?><span class="muted"><?= $v->e($b['last_finished']) ?></span><?php endif ?>
         </div>
+        <?php if ($b['status'] === 'reading'): ?><?= $v->partial('_progress', ['b' => $b]) ?><?php endif ?>
       </div>
     </a>
   </li>

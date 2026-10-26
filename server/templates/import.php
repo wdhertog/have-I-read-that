@@ -13,6 +13,15 @@
     <button>Importeren</button>
   </form>
 </section>
+<section class="card">
+  <h2>Exporteren</h2>
+  <p>Download al je boeken, leesmomenten en leesdoelen. De CSV heeft het StoryGraph-formaat en kun je hier ook weer importeren; de JSON bevat alles.</p>
+  <p class="actions">
+    <a class="button secondary" href="<?= $v->url('/export.csv') ?>">CSV (StoryGraph-formaat)</a>
+    <a class="button secondary" href="<?= $v->url('/export.json') ?>">JSON</a>
+  </p>
+</section>
+
 <?php if ($result): ?>
 <section class="card">
   <h2>Resultaat</h2>

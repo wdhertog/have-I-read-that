@@ -111,7 +111,12 @@ final class StoryGraph
             }
             $row = [];
             foreach ($header as $i => $name) {
-                $row[$name] = trim((string) ($cells[$i] ?? ''));
+                $value = trim((string) ($cells[$i] ?? ''));
+                // Undo the formula guard Export::cell() adds ("'=..." back to "=...").
+                if (preg_match("/^'[=+\\-@]/", $value)) {
+                    $value = substr($value, 1);
+                }
+                $row[$name] = $value;
             }
             if ($row['Title'] === '') {
                 continue;

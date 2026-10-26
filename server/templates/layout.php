@@ -16,7 +16,7 @@
       <a href="<?= $v->url('/books') ?>">Boeken</a>
       <a href="<?= $v->url('/books/add') ?>">+ Toevoegen</a>
       <a href="<?= $v->url('/stats') ?>">Statistieken</a>
-      <a href="<?= $v->url('/import') ?>">Import</a>
+      <a href="<?= $v->url('/import') ?>">Import/export</a>
       <a href="<?= $v->url('/settings') ?>">Instellingen</a>
       <?php if ($publicPage): ?><a href="<?= $v->url('/') ?>">Openbaar</a><?php endif ?>
       <form method="post" action="<?= $v->url('/logout') ?>" class="inline"><?= $v->csrf() ?><button class="link">Uitloggen</button></form>

@@ -7,6 +7,7 @@ namespace App\Controller;
 use App\App;
 use App\Auth;
 use App\Books;
+use App\Export;
 use App\MastodonException;
 use App\OpenLibrary;
 use App\Request;
@@ -100,6 +101,12 @@ final class Web
             $this->app->flash('error', $e->getMessage());
             return $this->app->render('book_form', ['book' => $request->post, 'results' => null, 'q' => '', 'edit' => false], 422);
         }
+        $duplicate = $this->app->books->findDuplicate($data['title'], $data['author'], $data['isbn']);
+        if ($duplicate && $request->input('allow_duplicate') !== 'on') {
+            return $this->app->render('book_form', [
+                'book' => $request->post, 'results' => null, 'q' => '', 'edit' => false, 'duplicate' => $duplicate,
+            ], 409);
+        }
         $id = $this->app->books->create(
             $data,
             Books::validDate($request->input('started')),
@@ -125,6 +132,26 @@ final class Web
             'tootKind' => $book['status'] === 'reading' ? 'started' : 'finished',
             'tootText' => $this->app->tooter->compose($book, $book['status'] === 'reading' ? 'started' : 'finished'),
         ]);
+    }
+
+    public function progress(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->app->render('404', [], 404);
+        }
+        try {
+            $page = self::optionalInt($request->input('page'));
+            $percent = $page === null ? self::optionalInt($request->input('percent')) : null;
+            $progress = $this->app->books->setProgress($id, $page, $percent);
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+            return $this->toBook($id);
+        }
+        $this->app->flash('ok', "Bijgewerkt: {$progress['percent']}% gelezen.");
+        if ($this->wantsToot($request)) {
+            $this->postToot($id, 'progress');
+        }
+        return $this->toBook($id);
     }
 
     public function editForm(Request $request, int $id): Response
@@ -231,14 +258,59 @@ final class Web
     public function stats(Request $request): Response
     {
         $years = $this->app->books->years();
-        $year = (int) ($request->query('year') ?: ($years[0]['year'] ?? date('Y')));
+        $year = (int) ($request->query('year') ?: date('Y'));
         return $this->app->render('stats', [
             'years' => $years,
             'year' => $year,
+            'goal' => $this->app->books->goalProgress($year),
             'books' => $this->app->books->readInYear($year),
             'topAuthors' => $this->app->books->topAuthors(),
             'maxBooks' => max(array_column($years, 'books') ?: [0]),
         ]);
+    }
+
+    public function setGoal(Request $request): Response
+    {
+        $year = 0;
+        try {
+            $year = (int) self::optionalInt($request->input('year'));
+            $this->app->books->setGoal($year, self::optionalInt($request->input('books')));
+            $this->app->flash('ok', 'Leesdoel opgeslagen.');
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
+        return Response::redirect($this->app->url('/stats', ['year' => $year ?: null]));
+    }
+
+    public function exportCsv(Request $request): Response
+    {
+        return $this->download(Export::csv($this->app->books->export()), 'text/csv', 'csv');
+    }
+
+    public function exportJson(Request $request): Response
+    {
+        return $this->download(Export::json($this->app->books->export()), 'application/json', 'json');
+    }
+
+    private function download(string $body, string $type, string $extension): Response
+    {
+        return new Response($body, 200, [
+            'Content-Type' => "{$type}; charset=utf-8",
+            'Content-Disposition' => 'attachment; filename="boeken-' . date('Y-m-d') . ".{$extension}\"",
+        ]);
+    }
+
+    /** A whole number from a form field, or null when empty. */
+    private static function optionalInt(mixed $value): ?int
+    {
+        $value = Books::text($value, 10);
+        if ($value === '') {
+            return null;
+        }
+        if (!preg_match('/^-?\d+$/', $value)) {
+            throw new InvalidArgumentException('Vul een heel getal in.');
+        }
+        return (int) $value;
     }
 
     public function importForm(Request $request): Response

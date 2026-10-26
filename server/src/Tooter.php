@@ -21,7 +21,11 @@ final class Tooter
     /** @param array<string, mixed> $book */
     public function compose(array $book, string $kind): string
     {
-        $template = $kind === 'started' ? $this->config->templateStarted() : $this->config->templateFinished();
+        $template = match ($kind) {
+            'started' => $this->config->templateStarted(),
+            'progress' => $this->config->templateProgress(),
+            default => $this->config->templateFinished(),
+        };
         return Mastodon::compose($template, $book, $this->config->int('MASTODON_MAX_CHARS', 500));
     }
 

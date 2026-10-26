@@ -52,8 +52,12 @@ final class App
         $r->add('POST', '/books/{id}/finish', [$web, 'finish']);
         $r->add('POST', '/books/{id}/toot', [$web, 'toot']);
         $r->add('POST', '/books/{id}/reads', [$web, 'addRead']);
+        $r->add('POST', '/books/{id}/progress', [$web, 'progress']);
         $r->add('POST', '/reads/{id}/delete', [$web, 'deleteRead']);
         $r->add('GET', '/stats', [$web, 'stats']);
+        $r->add('POST', '/stats/goal', [$web, 'setGoal']);
+        $r->add('GET', '/export.csv', [$web, 'exportCsv']);
+        $r->add('GET', '/export.json', [$web, 'exportJson']);
         $r->add('GET', '/import', [$web, 'importForm']);
         $r->add('POST', '/import', [$web, 'import']);
         $r->add('GET', '/settings', [$web, 'settings']);
@@ -68,6 +72,13 @@ final class App
         $r->add('POST', '/api/books/{id}/start', [$api, 'start']);
         $r->add('POST', '/api/books/{id}/finish', [$api, 'finish']);
         $r->add('POST', '/api/books/{id}/toot', [$api, 'toot']);
+        // Only GET and POST: some shared hosting blocks PUT and DELETE.
+        $r->add('POST', '/api/books/{id}', [$api, 'update']);
+        $r->add('POST', '/api/books/{id}/delete', [$api, 'delete']);
+        $r->add('POST', '/api/books/{id}/progress', [$api, 'progress']);
+        $r->add('POST', '/api/books/{id}/reads', [$api, 'addRead']);
+        $r->add('POST', '/api/reads/{id}', [$api, 'updateRead']);
+        $r->add('POST', '/api/reads/{id}/delete', [$api, 'deleteRead']);
         $r->add('GET', '/api/lookup', [$api, 'lookup']);
     }
 

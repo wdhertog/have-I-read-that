@@ -4,13 +4,15 @@
   <p class="muted"><?php if ($loggedIn): ?><a href="<?= $v->url('/books') ?>">Beheren →</a><?php else: ?><a href="<?= $v->url('/login') ?>">Inloggen</a><?php endif ?></p>
 </header>
 
+<?php if ($goal['goal']): ?><section class="card"><h2>Leesdoel</h2><?= $v->partial('_goal', ['goal' => $goal]) ?></section><?php endif ?>
+
 <?php if ($reading): ?>
 <section class="card">
   <h2>Nu aan het lezen</h2>
   <?php foreach ($reading as $b): ?>
   <div class="public-book">
     <?= $v->partial('_cover', ['b' => $b, 'size' => 'S']) ?>
-    <div><strong><?= $v->e($b['title']) ?></strong><div class="muted"><?= $v->e($b['author']) ?></div></div>
+    <div><strong><?= $v->e($b['title']) ?></strong><div class="muted"><?= $v->e($b['author']) ?></div><?= $v->partial('_progress', ['b' => $b]) ?></div>
   </div>
   <?php endforeach ?>
 </section>

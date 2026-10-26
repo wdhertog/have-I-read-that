@@ -21,6 +21,14 @@ final class Books
     public const FORMATS = ['paperback', 'hardcover', 'ebook', 'audio'];
     public const MAX_REVIEW = 10000;
     public const MAX_PAGES = 100000;
+    public const MAX_GOAL = 10000;
+
+    /** Book columns plus the progress of the current (unfinished) read. */
+    private const SELECT_BOOK = "SELECT b.*,
+            (SELECT MAX(r.finished) FROM `reads` r WHERE r.book_id = b.id) AS last_finished,
+            (SELECT r.progress_page FROM `reads` r WHERE r.book_id = b.id AND r.finished IS NULL ORDER BY r.id DESC LIMIT 1) AS progress_page,
+            (SELECT r.progress_percent FROM `reads` r WHERE r.book_id = b.id AND r.finished IS NULL ORDER BY r.id DESC LIMIT 1) AS progress_percent
+        FROM books b";
 
     public function __construct(private PDO $db)
     {
@@ -121,8 +129,7 @@ final class Books
     /** @return list<array<string, mixed>> */
     public function list(?string $status = null, string $q = '', ?int $limit = null): array
     {
-        $sql = 'SELECT b.*, (SELECT MAX(r.finished) FROM `reads` r WHERE r.book_id = b.id) AS last_finished
-                FROM books b WHERE 1 = 1';
+        $sql = self::SELECT_BOOK . ' WHERE 1 = 1';
         $args = [];
         if ($status !== null && isset(self::STATUSES[$status])) {
             $sql .= ' AND b.status = ?';
@@ -149,7 +156,7 @@ final class Books
     /** @return array<string, mixed>|null */
     public function find(int $id): ?array
     {
-        $book = $this->query('SELECT * FROM books WHERE id = ?', [$id])->fetch();
+        $book = $this->query(self::SELECT_BOOK . ' WHERE b.id = ?', [$id])->fetch();
         return $book ? self::cast($book) : null;
     }
 
@@ -160,11 +167,28 @@ final class Books
         return $book ? self::cast($book) : null;
     }
 
+    /**
+     * An existing book that looks like this one: same ISBN, or the same title and author
+     * (the column collation ignores case, accents and trailing spaces).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findDuplicate(string $title, string $author, ?string $isbn, ?int $exceptId = null): ?array
+    {
+        $collapse = static fn (string $s) => trim((string) preg_replace('/\s+/u', ' ', $s));
+        $book = $this->query(
+            self::SELECT_BOOK . ' WHERE b.id != ? AND ((? IS NOT NULL AND b.isbn = ?) OR (b.title = ? AND b.author = ?))
+             ORDER BY b.id LIMIT 1',
+            [$exceptId ?? 0, $isbn, $isbn, $collapse($title), $collapse($author)],
+        )->fetch();
+        return $book ? self::cast($book) : null;
+    }
+
     /** @return list<array<string, mixed>> */
     public function reads(int $bookId): array
     {
         return $this->query(
-            "SELECT id, started, finished FROM `reads` WHERE book_id = ?
+            "SELECT id, started, finished, progress_page, progress_percent FROM `reads` WHERE book_id = ?
              ORDER BY COALESCE(finished, started, '9999-12-31') DESC, id DESC",
             [$bookId],
         )->fetchAll();
@@ -254,6 +278,117 @@ final class Books
         $this->query('INSERT INTO `reads` (book_id, started, finished) VALUES (?, ?, ?)', [$bookId, $started, $finished]);
     }
 
+    /** Change a read's dates and return the book it belongs to (null if it doesn't exist). */
+    public function updateRead(int $readId, ?string $started, ?string $finished): ?int
+    {
+        $bookId = $this->query('SELECT book_id FROM `reads` WHERE id = ?', [$readId])->fetchColumn();
+        if ($bookId === false) {
+            return null;
+        }
+        $this->query('UPDATE `reads` SET started = ?, finished = ? WHERE id = ?', [$started, $finished, $readId]);
+        return (int) $bookId;
+    }
+
+    /**
+     * Record how far into the current read you are, as a page or a percentage. With the
+     * book's page count known, one is worked out from the other.
+     *
+     * @return array{page: ?int, percent: int}
+     */
+    public function setProgress(int $bookId, ?int $page, ?int $percent): array
+    {
+        $book = $this->find($bookId) ?? throw new InvalidArgumentException('Boek niet gevonden.');
+        if ($book['status'] !== 'reading') {
+            throw new InvalidArgumentException('Begin eerst met lezen.');
+        }
+        $pages = $book['pages'];
+        if ($page !== null) {
+            if ($page < 0 || $page > self::MAX_PAGES || ($pages !== null && $page > $pages)) {
+                throw new InvalidArgumentException($pages !== null
+                    ? "Kies een pagina tussen 0 en {$pages}."
+                    : 'Ongeldige pagina.');
+            }
+            if ($pages === null) {
+                throw new InvalidArgumentException("Vul eerst het aantal pagina's van het boek in, of geef een percentage.");
+            }
+            $percent = (int) round(100 * $page / max(1, $pages));
+        } elseif ($percent !== null) {
+            if ($percent < 0 || $percent > 100) {
+                throw new InvalidArgumentException('Kies een percentage tussen 0 en 100.');
+            }
+            $page = $pages !== null ? (int) round($pages * $percent / 100) : null;
+        } else {
+            throw new InvalidArgumentException('Geef een pagina of een percentage.');
+        }
+        $open = $this->query(
+            'SELECT id FROM `reads` WHERE book_id = ? AND finished IS NULL ORDER BY id DESC LIMIT 1',
+            [$bookId],
+        )->fetchColumn();
+        if (!$open) {
+            $this->addRead($bookId, null, null);
+            $open = $this->db->lastInsertId();
+        }
+        $this->query('UPDATE `reads` SET progress_page = ?, progress_percent = ? WHERE id = ?', [$page, $percent, $open]);
+        return ['page' => $page, 'percent' => $percent];
+    }
+
+    public function goal(int $year): ?int
+    {
+        $books = $this->query('SELECT books FROM goals WHERE year = ?', [$year])->fetchColumn();
+        return $books === false ? null : (int) $books;
+    }
+
+    /** Set the reading goal for a year; null or 0 removes it. */
+    public function setGoal(int $year, ?int $books): void
+    {
+        if ($year < 1900 || $year > 2999) {
+            throw new InvalidArgumentException('Ongeldig jaar.');
+        }
+        if (!$books) {
+            $this->query('DELETE FROM goals WHERE year = ?', [$year]);
+            return;
+        }
+        if ($books < 0 || $books > self::MAX_GOAL) {
+            throw new InvalidArgumentException('Kies een doel tussen 1 en ' . self::MAX_GOAL . ' boeken.');
+        }
+        $this->query('INSERT INTO goals (year, books) VALUES (?, ?) ON DUPLICATE KEY UPDATE books = VALUES(books)', [$year, $books]);
+    }
+
+    /** @return array{year: int, goal: ?int, read: int} */
+    public function goalProgress(int $year): array
+    {
+        $read = $this->query(
+            "SELECT COUNT(*) FROM `reads` r JOIN books b ON b.id = r.book_id
+             WHERE r.finished >= ? AND r.finished < ? AND b.status = 'read'",
+            [sprintf('%04d-01-01', $year), sprintf('%04d-01-01', $year + 1)],
+        )->fetchColumn();
+        return ['year' => $year, 'goal' => $this->goal($year), 'read' => (int) $read];
+    }
+
+    /**
+     * Everything, for the export.
+     *
+     * @return array{books: list<array<string, mixed>>, goals: array<int, int>}
+     */
+    public function export(): array
+    {
+        $books = array_map([self::class, 'cast'], $this->query('SELECT * FROM books ORDER BY id')->fetchAll());
+        $reads = [];
+        foreach ($this->query('SELECT * FROM `reads` ORDER BY started, finished, id')->fetchAll() as $read) {
+            $reads[(int) $read['book_id']][] = [
+                'started' => $read['started'],
+                'finished' => $read['finished'],
+                'progress_page' => $read['progress_page'] !== null ? (int) $read['progress_page'] : null,
+                'progress_percent' => $read['progress_percent'] !== null ? (int) $read['progress_percent'] : null,
+            ];
+        }
+        foreach ($books as &$book) {
+            $book['reads'] = $reads[$book['id']] ?? [];
+        }
+        $goals = array_map('intval', $this->query('SELECT year, books FROM goals ORDER BY year')->fetchAll(PDO::FETCH_KEY_PAIR));
+        return ['books' => $books, 'goals' => $goals];
+    }
+
     /** Delete a read and return the book it belonged to. */
     public function deleteRead(int $readId): ?int
     {
@@ -309,13 +444,7 @@ final class Books
     /** @param array<string, mixed> $book */
     private function exists(array $book): bool
     {
-        if ($book['isbn'] && $this->findByIsbn($book['isbn'])) {
-            return true;
-        }
-        return (bool) $this->query(
-            'SELECT 1 FROM books WHERE LOWER(title) = LOWER(?) AND LOWER(author) = LOWER(?)',
-            [$book['title'], $book['author']],
-        )->fetchColumn();
+        return $this->findDuplicate($book['title'], $book['author'], $book['isbn']) !== null;
     }
 
     /** @return list<array{year: string, books: int, pages: ?int, avg_rating: ?float}> */
@@ -365,6 +494,11 @@ final class Books
         $book['rating'] = $book['rating'] !== null ? (float) $book['rating'] : null;
         $book['pages'] = $book['pages'] !== null ? (int) $book['pages'] : null;
         $book['owned'] = (bool) $book['owned'];
+        foreach (['progress_page', 'progress_percent'] as $key) {
+            if (array_key_exists($key, $book)) {
+                $book[$key] = $book[$key] !== null ? (int) $book[$key] : null;
+            }
+        }
         return $book;
     }
 
