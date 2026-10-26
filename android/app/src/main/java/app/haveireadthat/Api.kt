@@ -50,9 +50,24 @@ data class Book(
     @SerialName("cover_url") val coverUrl: String? = null,
     @SerialName("progress_page") val progressPage: Int? = null,
     @SerialName("progress_percent") val progressPercent: Int? = null,
+    val series: String? = null,
+    @SerialName("series_number") val seriesNumber: Double? = null,
     val reads: List<Read> = emptyList(),
+    val notes: List<Note> = emptyList(),
     val posts: List<Post> = emptyList(),
 )
+
+@Serializable
+data class Note(
+    val id: Int,
+    val kind: String = "note", // note or quote
+    val text: String,
+    val page: Int? = null,
+    @SerialName("public") val isPublic: Boolean = false,
+)
+
+@Serializable
+data class NewNote(val kind: String, val text: String, val page: Int? = null, @SerialName("public") val isPublic: Boolean = false)
 
 @Serializable
 data class Read(val id: Int, val started: String? = null, val finished: String? = null)
@@ -114,6 +129,8 @@ data class NewBook(
     val format: String? = null,
     val tags: String? = null,
     val owned: Boolean = false,
+    val series: String? = null,
+    @SerialName("series_number") val seriesNumber: Double? = null,
     val toot: Boolean = false,
     @SerialName("allow_duplicate") val allowDuplicate: Boolean = false,
 )
@@ -184,6 +201,10 @@ class ApiClient(serverUrl: String, private val token: String) {
         post("api/reads/$readId", json.encodeToString(dates))
 
     suspend fun deleteRead(readId: Int): BookResponse = post("api/reads/$readId/delete", "{}")
+
+    suspend fun addNote(bookId: Int, note: NewNote): BookResponse = post("api/books/$bookId/notes", json.encodeToString(note))
+
+    suspend fun deleteNote(noteId: Int): BookResponse = post("api/notes/$noteId/delete", "{}")
 
     private fun url(path: String): HttpUrl = base.newBuilder().addPathSegments(path).build()
 

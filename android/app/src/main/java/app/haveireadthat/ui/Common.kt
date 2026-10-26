@@ -31,6 +31,10 @@ fun stars(rating: Double?): String {
     return "★".repeat(full) + (if (half == 1) "½" else "") + "☆".repeat(5 - full - half)
 }
 
+/** 3.0 → "3", 2.5 → "2,5" (series numbers). */
+fun formatNumber(value: Double): String =
+    if (value % 1.0 == 0.0) value.toInt().toString() else value.toString().replace('.', ',')
+
 fun formatRating(rating: Double): String =
     if (rating % 1.0 == 0.0) rating.toInt().toString() else rating.toString().trimEnd('0')
 

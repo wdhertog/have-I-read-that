@@ -19,7 +19,7 @@ import java.util.UUID
 @Serializable
 data class PendingAction(
     val id: String,
-    val type: String, // start, finish, progress, create
+    val type: String, // start, finish, progress, create, note
     val bookId: Int,
     val title: String,
     val body: String, // the request as JSON
@@ -120,6 +120,13 @@ class Repository(context: Context) {
         },
     )
 
+    /** A note or quote; offline it's saved on the phone and sent later. */
+    suspend fun addNote(book: Book, note: NewNote): Outcome = send(
+        "note", book, ApiClient.json.encodeToString(note),
+        online = { client().addNote(book.id, note) },
+        local = { it.copy(notes = it.notes + Note(id = -1 - it.notes.size, kind = note.kind, text = note.text, page = note.page, isPublic = note.isPublic)) },
+    )
+
     /** Add a book; offline it gets a temporary negative id until it's sent. */
     suspend fun create(request: NewBook): Outcome = try {
         client().create(request).also { refreshAfterChange() }.let { Outcome.Sent(it) }
@@ -178,6 +185,7 @@ class Repository(context: Context) {
                     "finish" -> client().finish(next.bookId, ApiClient.json.decodeFromString<FinishRequest>(next.body))
                     "progress" -> client().progress(next.bookId, ApiClient.json.decodeFromString<ProgressRequest>(next.body))
                     "create" -> client().create(ApiClient.json.decodeFromString<NewBook>(next.body))
+                    "note" -> client().addNote(next.bookId, ApiClient.json.decodeFromString<NewNote>(next.body))
                     else -> null
                 }
                 update { s ->
@@ -248,7 +256,7 @@ class Repository(context: Context) {
 
 /** Put a newer version of a book into both the list and the details. */
 private fun LocalState.withBook(book: Book): LocalState = copy(
-    books = if (books.any { it.id == book.id }) books.map { if (it.id == book.id) book.copy(reads = emptyList(), posts = emptyList()) else it }
+    books = if (books.any { it.id == book.id }) books.map { if (it.id == book.id) book.copy(reads = emptyList(), posts = emptyList(), notes = emptyList()) else it }
     else listOf(book) + books,
     details = details + (book.id to book),
 )

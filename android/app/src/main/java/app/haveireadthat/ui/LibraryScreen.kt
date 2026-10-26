@@ -59,6 +59,7 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
     val repository = remember { Repository(context) }
     val scope = rememberCoroutineScope()
     var status by rememberSaveable { mutableStateOf<String?>(null) }
+    var shelf by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
     var books by remember { mutableStateOf<List<Book>?>(null) }
     var state by remember { mutableStateOf(LocalState()) }
@@ -84,11 +85,17 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
         }
     }
 
-    val shown = remember(books, status, query) {
+    // Shelves are tags; StoryGraph's come in as shelves.
+    val shelves = remember(books) {
+        books.orEmpty().flatMap { tagList(it.tags) }.groupBy { it.lowercase() }.map { (_, names) -> names.first() }
+            .sortedBy { it.lowercase() }
+    }
+    val shown = remember(books, status, query, shelf) {
         val q = query.trim().lowercase()
         books.orEmpty().filter { book ->
-            (status == null || book.status == status) && (q.isEmpty() ||
-                listOfNotNull(book.title, book.author, book.tags, book.isbn).any { it.lowercase().contains(q) })
+            (status == null || book.status == status) &&
+                (shelf == null || tagList(book.tags).any { it.equals(shelf, ignoreCase = true) }) &&
+                (q.isEmpty() || listOfNotNull(book.title, book.author, book.tags, book.isbn, book.series).any { it.lowercase().contains(q) })
         }.sortedWith(compareByDescending<Book> { it.status == "reading" })
     }
 
@@ -127,6 +134,22 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
                 FilterChip(selected = status == null, onClick = { status = null }, label = { Text("Alles") })
                 STATUSES.forEach { (key, label) ->
                     FilterChip(selected = status == key, onClick = { status = key }, label = { Text(label) })
+                }
+            }
+            if (shelves.isNotEmpty()) {
+                Row(
+                    Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    shelves.forEach { name ->
+                        FilterChip(
+                            selected = shelf.equals(name, ignoreCase = true),
+                            onClick = { shelf = if (shelf.equals(name, ignoreCase = true)) null else name },
+                            label = { Text("🏷 $name") },
+                        )
+                    }
                 }
             }
             if (offline) {
@@ -207,7 +230,12 @@ private fun BookRow(book: Book, onClick: () -> Unit) {
             if (book.author.isNotBlank()) {
                 Text(book.author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            val meta = listOfNotNull(STATUSES[book.status], stars(book.rating).ifEmpty { null }, book.lastFinished)
+            val meta = listOfNotNull(
+                STATUSES[book.status],
+                book.series?.let { s -> s + (book.seriesNumber?.let { " #${formatNumber(it)}" } ?: "") },
+                stars(book.rating).ifEmpty { null },
+                book.lastFinished,
+            )
             Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (book.status == "reading") ProgressLine(book)
         }
@@ -226,3 +254,5 @@ private fun GoalLine(goal: Goal) {
         LinearProgressIndicator(progress = { (goal.read.toFloat() / target).coerceAtMost(1f) }, modifier = Modifier.fillMaxWidth())
     }
 }
+
+private fun tagList(tags: String?): List<String> = tags.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
