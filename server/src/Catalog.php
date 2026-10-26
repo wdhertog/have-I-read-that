@@ -66,6 +66,7 @@ final class Catalog
                 }
             }
         }
+        $merged['language'] = Language::normalize($merged['language'] ?? null);
         return ($merged['title'] ?? null) ? $merged : null;
     }
 
