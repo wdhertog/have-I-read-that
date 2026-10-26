@@ -152,10 +152,37 @@ services, dus zonder camera-toestemming), boeken starten en uitlezen met
 beoordeling en recensie (en daarbij naar Mastodon posten), en je bibliotheek
 doorbladeren en doorzoeken.
 
-**APK krijgen:** elke push naar GitHub bouwt de app via GitHub Actions
-(workflow *Android app*). Download de APK onder *Actions → laatste run →
-Artifacts* en installeer hem op je telefoon (sta “installeren uit onbekende bron”
-toe). Of open de map `android/` in Android Studio en kies *Run*.
+**APK krijgen:** elke wijziging aan de app op `main` levert een nieuwe versie op
+onder *Releases* op GitHub. Installeer die over de vorige heen (sta “installeren
+uit onbekende bron” toe). Zonder ondertekeningssleutel (zie hieronder) staat er
+alleen een testversie onder *Actions → laatste run → Artifacts*, en die kan niet
+over een eerdere versie heen.
+
+**Eenmalig: een eigen ondertekeningssleutel.** Android staat een update alleen toe
+als hij met dezelfde sleutel is ondertekend. Maak die sleutel zelf, op je eigen
+computer (`keytool` zit bij Java en Android Studio):
+
+```sh
+keytool -genkeypair -v -keystore have-i-read-that.jks -alias haveireadthat \
+        -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Zet daarna onder *Settings → Secrets and variables → Actions → New repository
+secret* deze vier geheimen:
+
+| Naam | Waarde |
+| --- | --- |
+| `SIGNING_KEYSTORE_BASE64` | Het bestand als base64 (macOS: `base64 -i have-i-read-that.jks \| pbcopy`; Linux: `base64 -w0 have-i-read-that.jks`; Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("have-i-read-that.jks")) \| Set-Clipboard`) |
+| `SIGNING_STORE_PASSWORD` | Het wachtwoord dat je bij `keytool` koos |
+| `SIGNING_KEY_PASSWORD` | Hetzelfde wachtwoord |
+| `SIGNING_KEY_ALIAS` | `haveireadthat` |
+
+Bewaar `have-i-read-that.jks` en het wachtwoord goed (bijv. in je
+wachtwoordmanager), maar zet ze nooit in de repository. Kwijt betekent: de app één
+keer verwijderen en opnieuw installeren. De overstap van de testversie naar de
+ondertekende versie vraagt ook één keer verwijderen.
+
+Of open de map `android/` in Android Studio en kies *Run*.
 
 **Koppelen:** maak op de site onder *Instellingen → Android-app* een token aan.
 Vul in de app het serveradres (bijv. `https://boeken.example.nl`) en het token in.
