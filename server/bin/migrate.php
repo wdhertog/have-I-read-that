@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+// Only from the command line: never as a web page, should this folder be reachable.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit(1);
+}
+
 // Usage: php bin/migrate.php  — creates/updates the database tables.
 
 use App\Config;

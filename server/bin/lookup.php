@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+// Only from the command line: never as a web page, should this folder be reachable.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit(1);
+}
+
 // See what each source knows about an ISBN, e.g.:
 //   php bin/lookup.php 9789023417069
 // Handy to check that the sources are reachable from your server. With --kb-xml it

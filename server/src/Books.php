@@ -390,10 +390,10 @@ final class Books
             $this->query(
                 'INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, owned, series, series_number,
                                     publisher, published_year, date_added)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())',
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [$data['title'], $data['author'], $data['isbn'], $data['format'], $data['pages'], $data['status'],
                  $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number'],
-                 $data['publisher'], $data['published_year']],
+                 $data['publisher'], $data['published_year'], date('Y-m-d')],
             );
             $id = (int) $this->db->lastInsertId();
             $this->saveDetails($id, $data['extra'] ?? []);
@@ -401,7 +401,7 @@ final class Books
             if ($data['status'] === 'reading') {
                 $this->addRead($id, $started ?? $today, null);
             } elseif ($data['status'] === 'read' || ($data['status'] === 'dnf' && ($started || $finished))) {
-                $this->addRead($id, $started, $finished ?? $today);
+                $this->addRead($id, $started, $finished ?? $today, $data['status'] === 'dnf');
             }
             $this->db->commit();
         } catch (\Throwable $e) {
@@ -414,6 +414,7 @@ final class Books
     /** @param array<string, mixed> $data Output of validate(). */
     public function update(int $id, array $data): void
     {
+        $old = $this->query('SELECT status FROM books WHERE id = ?', [$id])->fetchColumn();
         $this->query(
             'UPDATE books SET title = ?, author = ?, isbn = ?, format = ?, pages = ?, status = ?, rating = ?,
                     review = ?, tags = ?, owned = ?, series = ?, series_number = ?, publisher = ?, published_year = ?
@@ -423,6 +424,32 @@ final class Books
              $data['publisher'], $data['published_year'], $id],
         );
         $this->saveDetails($id, $data['extra'] ?? []);
+        if ($old !== false && $old !== $data['status']) {
+            $this->followStatus($id, (string) $old, $data['status']);
+        }
+    }
+
+    /**
+     * A status changed by editing, not by "start" or "finish": keep the reads in step,
+     * so the book counts (or stops counting) in the year's stats and goal.
+     */
+    private function followStatus(int $id, string $old, string $new): void
+    {
+        $today = date('Y-m-d');
+        $open = $this->query('SELECT id FROM `reads` WHERE book_id = ? AND finished IS NULL ORDER BY id DESC LIMIT 1', [$id])->fetchColumn();
+        $last = $this->query('SELECT id FROM `reads` WHERE book_id = ? AND finished IS NOT NULL ORDER BY finished DESC, id DESC LIMIT 1', [$id])->fetchColumn();
+        if ($new === 'reading' && !$open) {
+            $this->addRead($id, $today, null);
+        } elseif ($new === 'read' || $new === 'dnf') {
+            $dnf = (int) ($new === 'dnf');
+            if ($open) {
+                $this->query('UPDATE `reads` SET finished = ?, dnf = ? WHERE id = ?', [$today, $dnf, $open]);
+            } elseif ($last && in_array($old, ['read', 'dnf'], true)) {
+                $this->query('UPDATE `reads` SET dnf = ? WHERE id = ?', [$dnf, $last]); // read ↔ dnf
+            } elseif ($new === 'read') {
+                $this->addRead($id, null, $today);
+            }
+        }
     }
 
     /** @param array<string, mixed> $details Column => value, only DETAIL_FIELDS. */
@@ -455,9 +482,9 @@ final class Books
             [$id],
         )->fetchColumn();
         if ($open) {
-            $this->query('UPDATE `reads` SET finished = ? WHERE id = ?', [$date, $open]);
+            $this->query('UPDATE `reads` SET finished = ?, dnf = ? WHERE id = ?', [$date, (int) $dnf, $open]);
         } else {
-            $this->addRead($id, null, $date);
+            $this->addRead($id, null, $date, $dnf);
         }
         $review = $review !== null && trim($review) !== '' ? trim($review) : null;
         $this->query(
@@ -466,9 +493,10 @@ final class Books
         );
     }
 
-    public function addRead(int $bookId, ?string $started, ?string $finished): void
+    /** @param bool $dnf Stopped before the end: doesn't count as read in the stats. */
+    public function addRead(int $bookId, ?string $started, ?string $finished, bool $dnf = false): void
     {
-        $this->query('INSERT INTO `reads` (book_id, started, finished) VALUES (?, ?, ?)', [$bookId, $started, $finished]);
+        $this->query('INSERT INTO `reads` (book_id, started, finished, dnf) VALUES (?, ?, ?, ?)', [$bookId, $started, $finished, (int) $dnf]);
     }
 
     /** Change a read's dates and return the book it belongs to (null if it doesn't exist). */
@@ -552,7 +580,7 @@ final class Books
     {
         $read = $this->query(
             "SELECT COUNT(*) FROM `reads` r JOIN books b ON b.id = r.book_id
-             WHERE r.finished >= ? AND r.finished < ? AND b.status = 'read'",
+             WHERE r.finished >= ? AND r.finished < ? AND r.dnf = 0",
             [sprintf('%04d-01-01', $year), sprintf('%04d-01-01', $year + 1)],
         )->fetchColumn();
         return ['year' => $year, 'goal' => $this->goal($year), 'read' => (int) $read];
@@ -617,7 +645,7 @@ final class Books
         $set = [];
         $changes = [];
         foreach (self::ENRICH_FIELDS as $field => [$column, $label]) {
-            $value = $info[$field] ?? null;
+            $value = self::catalogValue($column, $info[$field] ?? null);
             $empty = ($book[$column] ?? null) === null || $book[$column] === '';
             if ($field === 'series_number') {
                 $empty = $empty && isset($set['series']); // a number only belongs with the series it came with
@@ -633,6 +661,20 @@ final class Books
             [...array_values($set), $book['id']],
         );
         return $changes;
+    }
+
+    /** A catalogue value that fits its column, or null: odd numbers from a source are skipped. */
+    private static function catalogValue(string $column, mixed $value): mixed
+    {
+        $ranges = ['pages' => [1, self::MAX_PAGES], 'published_year' => [1000, 2999], 'first_published' => [-3000, 2999], 'series_number' => [0, 9999]];
+        if (isset($ranges[$column])) {
+            if (!is_int($value) && !is_float($value)) {
+                return null;
+            }
+            [$min, $max] = $ranges[$column];
+            return $value >= $min && $value <= $max ? ($column === 'series_number' ? round((float) $value, 1) : (int) $value) : null;
+        }
+        return is_string($value) || $value === null ? $value : (string) $value;
     }
 
     /** @return list<array<string, mixed>> Books with an ISBN that were never looked up. */
@@ -707,6 +749,9 @@ final class Books
                     $result['unchanged'][] = $existing['title'];
                 }
             }
+            // A StoryGraph DNF counts as not read, like finishing with "niet uitgelezen".
+            $this->query("UPDATE `reads` r JOIN books b ON b.id = r.book_id SET r.dnf = 1
+                          WHERE b.status = 'dnf' AND r.finished IS NOT NULL AND r.dnf = 0");
             $dryRun ? $this->db->rollBack() : $this->db->commit();
         } catch (\Throwable $e) {
             $this->db->rollBack();
@@ -732,11 +777,11 @@ final class Books
             "INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, moods, owned, contributors,
                                 content_warnings, content_warning_description, details, series, series_number, storygraph_id,
                                 source, date_added)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'storygraph', COALESCE(?, CURDATE()))",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'storygraph', ?)",
             [$book['title'], $book['author'], $book['isbn'], $book['format'], $book['pages'], $book['status'], $book['rating'],
              $book['review'], $book['tags'], $book['moods'], $book['owned'], $book['contributors'], $book['content_warnings'],
              $book['content_warning_description'], $book['details'] ? json_encode($book['details'], JSON_UNESCAPED_UNICODE) : null,
-             $book['series'] ?? null, $book['series_number'] ?? null, $book['storygraph_id'] ?? null, $book['date_added']],
+             $book['series'] ?? null, $book['series_number'] ?? null, $book['storygraph_id'] ?? null, $book['date_added'] ?? date('Y-m-d')],
         );
         $id = (int) $this->db->lastInsertId();
         foreach ($book['reads'] as [$started, $finished]) {
@@ -775,7 +820,7 @@ final class Books
         if ($newDetails) {
             $set['details'] = json_encode($details + $newDetails, JSON_UNESCAPED_UNICODE);
             foreach (array_keys($newDetails) as $name) {
-                $changes[] = mb_strtolower(StoryGraph::DETAIL_LABELS[$name] ?? $name);
+                $changes[] = mb_strtolower((string) (StoryGraph::DETAIL_LABELS[$name] ?? $name));
             }
         }
         if ($set) {
@@ -815,7 +860,7 @@ final class Books
         $rows = $this->query(
             "SELECT YEAR(r.finished) AS year, COUNT(*) AS books, SUM(b.pages) AS pages, ROUND(AVG(b.rating), 2) AS avg_rating
              FROM `reads` r JOIN books b ON b.id = r.book_id
-             WHERE r.finished IS NOT NULL AND b.status = 'read'
+             WHERE r.finished IS NOT NULL AND r.dnf = 0
              GROUP BY YEAR(r.finished) ORDER BY year DESC",
         )->fetchAll();
         return array_map(static fn (array $r) => [
@@ -831,7 +876,7 @@ final class Books
     {
         $rows = $this->query(
             "SELECT b.*, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id
-             WHERE r.finished >= ? AND r.finished < ? AND b.status = 'read' ORDER BY r.finished DESC",
+             WHERE r.finished >= ? AND r.finished < ? AND r.dnf = 0 ORDER BY r.finished DESC",
             [sprintf('%04d-01-01', $year), sprintf('%04d-01-01', $year + 1)],
         )->fetchAll();
         return array_map([self::class, 'cast'], $rows);
@@ -846,7 +891,7 @@ final class Books
     {
         $rows = $this->query(
             "SELECT b.*, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id
-             WHERE r.finished IS NOT NULL AND b.status = 'read'
+             WHERE r.finished IS NOT NULL AND r.dnf = 0
              ORDER BY r.finished DESC, r.id DESC LIMIT " . max(1, $limit),
         )->fetchAll();
         return array_map([self::class, 'cast'], $rows);

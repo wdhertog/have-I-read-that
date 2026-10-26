@@ -70,7 +70,8 @@ final class Database
                     }
                 }
             }
-            $db->prepare('INSERT INTO schema_migrations (version) VALUES (?)')->execute([$version]);
+            // IGNORE: two requests right after an update may both run it.
+            $db->prepare('INSERT IGNORE INTO schema_migrations (version) VALUES (?)')->execute([$version]);
             $applied[] = $version;
         }
         return $applied;

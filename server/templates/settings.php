@@ -63,7 +63,7 @@
   <?php if ($mastodon->configured()): ?>
     <p>Instance: <strong><?= $v->e($mastodon->instance()) ?></strong> · zichtbaarheid: <strong><?= $v->e($mastodon->visibility()) ?></strong></p>
     <form method="post" action="<?= $v->url('/settings/test') ?>"><?= $v->csrf() ?><button class="secondary">Test verbinding</button></form>
-    <?php if ($account): ?><p>✅ Verbonden als <a href="<?= $v->e($account['url'] ?? '') ?>" target="_blank" rel="noopener">@<?= $v->e($account['acct'] ?? '') ?></a></p><?php endif ?>
+    <?php if ($account): ?><p>✅ Verbonden als <a href="<?= $v->e(preg_match('#^https://#', (string) ($account['url'] ?? '')) ? $account['url'] : '#') ?>" target="_blank" rel="noopener">@<?= $v->e($account['acct'] ?? '') ?></a></p><?php endif ?>
   <?php else: ?>
     <p class="flash error">Nog niet ingesteld.</p>
   <?php endif ?>

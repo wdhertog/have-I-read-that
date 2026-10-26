@@ -47,13 +47,22 @@ final class Auth
     public function registerAttempt(string $ip): bool
     {
         $key = self::attemptKey($ip);
+        $count = function () use ($key): int {
+            $stmt = $this->db->prepare(
+                'SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND attempted_at > NOW() - INTERVAL ' . self::LOCKOUT_MINUTES . ' MINUTE',
+            );
+            $stmt->execute([$key]);
+            return (int) $stmt->fetchColumn();
+        };
+        // Already locked out: don't keep adding rows for someone hammering the form.
+        if ($count() >= self::MAX_FAILED_LOGINS) {
+            return false;
+        }
         $this->db->prepare('INSERT INTO login_attempts (ip) VALUES (?)')->execute([$key]);
-        $this->db->exec('DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL 1 DAY');
-        $stmt = $this->db->prepare(
-            'SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND attempted_at > NOW() - INTERVAL ' . self::LOCKOUT_MINUTES . ' MINUTE',
-        );
-        $stmt->execute([$key]);
-        return (int) $stmt->fetchColumn() <= self::MAX_FAILED_LOGINS;
+        if (random_int(1, 100) === 1) {
+            $this->db->exec('DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL 1 DAY');
+        }
+        return $count() <= self::MAX_FAILED_LOGINS;
     }
 
     public function clearAttempts(string $ip): void
@@ -190,18 +199,27 @@ final class Auth
         }
         $step = Totp::verify($secret, $code, (int) $this->setting('totp_last_step'));
         if ($step !== null) {
-            $this->saveSetting('totp_last_step', (string) $step);
-            return true;
+            // Only one request can move the step forward, so a code can't be used twice
+            // by sending it twice at the same moment.
+            $this->db->prepare("INSERT IGNORE INTO settings (name, value) VALUES ('totp_last_step', '0')")->execute();
+            $stmt = $this->db->prepare(
+                "UPDATE settings SET value = ? WHERE name = 'totp_last_step' AND CAST(value AS SIGNED) < ?",
+            );
+            $stmt->execute([(string) $step, $step]);
+            return $stmt->rowCount() === 1;
         }
-        $hashes = json_decode((string) $this->setting('recovery_codes'), true) ?: [];
+        $old = (string) $this->setting('recovery_codes');
+        $hashes = json_decode($old, true) ?: [];
         $hash = hash('sha256', strtolower(preg_replace('/[^A-Za-z0-9]/', '', $code)));
         $match = array_search($hash, $hashes, true);
         if ($match === false) {
             return false;
         }
         unset($hashes[$match]);
-        $this->saveSetting('recovery_codes', json_encode(array_values($hashes)));
-        return true;
+        // Likewise: only counts if nobody used a code in between.
+        $stmt = $this->db->prepare("UPDATE settings SET value = ? WHERE name = 'recovery_codes' AND value = ?");
+        $stmt->execute([json_encode(array_values($hashes)), $old]);
+        return $stmt->rowCount() === 1;
     }
 
     public function recoveryCodesLeft(): int

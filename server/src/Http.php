@@ -23,6 +23,7 @@ final class Http
     public static function postJson(string $url, string $json, array $headers = [], int $timeout = 10): ?string
     {
         return self::request($url, [
+            CURLOPT_FOLLOWLOCATION => false, // the token is for this URL only
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $json,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json', ...$headers],
