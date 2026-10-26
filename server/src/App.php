@@ -61,6 +61,10 @@ final class App
         $r->add('POST', '/books/{id}/toot', [$web, 'toot']);
         $r->add('POST', '/books/{id}/reads', [$web, 'addRead']);
         $r->add('POST', '/books/{id}/progress', [$web, 'progress']);
+        $r->add('POST', '/books/{id}/notes', [$web, 'addNote']);
+        $r->add('POST', '/notes/{id}/delete', [$web, 'deleteNote']);
+        $r->add('GET', '/collections', [$web, 'collections']);
+        $r->add('POST', '/collections/rename', [$web, 'renameShelf']);
         $r->add('POST', '/reads/{id}/delete', [$web, 'deleteRead']);
         $r->add('GET', '/stats', [$web, 'stats']);
         $r->add('POST', '/stats/goal', [$web, 'setGoal']);
@@ -99,6 +103,9 @@ final class App
         $r->add('POST', '/api/reads/{id}/delete', [$api, 'deleteRead']);
         $r->add('GET', '/api/lookup', [$api, 'lookup']);
         $r->add('GET', '/api/search', [$api, 'search']);
+        $r->add('GET', '/api/collections', [$api, 'collections']);
+        $r->add('POST', '/api/books/{id}/notes', [$api, 'addNote']);
+        $r->add('POST', '/api/notes/{id}/delete', [$api, 'deleteNote']);
     }
 
     /** Pages anyone may open: the login form, and the public shelf, book pages and feed. */

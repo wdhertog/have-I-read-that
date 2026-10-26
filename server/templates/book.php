@@ -4,6 +4,9 @@
   <div>
     <h1><?= $v->e($book['title']) ?></h1>
     <p class="muted"><?= $v->e($book['author']) ?></p>
+    <?php if ($book['series']): ?>
+      <p><a href="<?= $v->url('/collections', ['series' => $book['series']]) ?>"><?= $v->e($book['series']) ?></a><?= $book['series_number'] !== null ? ', deel ' . $v->e(rtrim(rtrim(number_format($book['series_number'], 1, ',', ''), '0'), ',')) : '' ?></p>
+    <?php endif ?>
     <p>
       <span class="badge <?= $book['status'] ?>"><?= $statuses[$book['status']] ?></span>
       <?php if ($book['rating']): ?><span class="stars"><?= $v->stars($book['rating']) ?></span> <span class="muted"><?= $v->rating($book['rating']) ?></span><?php endif ?>
@@ -75,6 +78,22 @@
 </section>
 <?php endif ?>
 </div>
+
+<section class="card" id="notities">
+  <h2>Notities en citaten</h2>
+  <?php if (!$notes): ?><p class="muted">Nog niets. Bewaar hier mooie zinnen of je gedachten tijdens het lezen.</p><?php endif ?>
+  <?= $v->partial('_notes', ['notes' => $notes, 'editable' => true]) ?>
+  <form method="post" action="<?= $v->url("/books/{$book['id']}/notes") ?>" class="grid">
+    <?= $v->csrf() ?>
+    <label>Soort
+      <select name="kind"><option value="note">Notitie</option><option value="quote">Citaat</option></select>
+    </label>
+    <label>Pagina <input name="page" type="number" min="0" max="<?= App\Books::MAX_PAGES ?>"></label>
+    <label class="wide">Tekst <textarea name="text" rows="3" maxlength="<?= App\Books::MAX_NOTE ?>" required></textarea></label>
+    <label class="check"><input type="checkbox" name="public"> Openbaar (op de openbare boekpagina)</label>
+    <div class="wide"><button class="secondary">Bewaren</button></div>
+  </form>
+</section>
 
 <section class="card">
   <h2>Leesmomenten</h2>

@@ -63,6 +63,8 @@ final class Books
             'tags' => $str('tags', 1000),
             'pages' => $str('pages', 20),
             'rating' => $str('rating', 20),
+            'series' => $str('series', 255),
+            'series_number' => $str('series_number', 20),
             'owned' => in_array($input['owned'] ?? null, ['on', '1', 1, true], true) ? 1 : 0,
         ];
         if ($data['title'] === null) {
@@ -82,7 +84,34 @@ final class Books
             $data['pages'] = (int) $data['pages'];
         }
         $data['rating'] = self::validateRating($data['rating']);
+        $data['tags'] = self::normalizeTags($data['tags']);
+        if ($data['series_number'] !== null) {
+            $number = str_replace(',', '.', $data['series_number']);
+            if (!is_numeric($number) || (float) $number < 0 || (float) $number > 99999) {
+                throw new InvalidArgumentException('Deel van de serie moet een getal zijn, bijv. 3 of 2,5.');
+            }
+            $data['series_number'] = round((float) $number, 1);
+        }
         return $data;
+    }
+
+    /** "fantasy,  bieb, Fantasy" → "fantasy, bieb": trimmed, without duplicates (ignoring case). */
+    public static function normalizeTags(?string $tags): ?string
+    {
+        $seen = [];
+        foreach (explode(',', (string) $tags) as $tag) {
+            $tag = trim((string) preg_replace('/\s+/u', ' ', $tag));
+            if ($tag !== '' && !isset($seen[mb_strtolower($tag)])) {
+                $seen[mb_strtolower($tag)] = $tag;
+            }
+        }
+        return $seen ? implode(', ', $seen) : null;
+    }
+
+    /** @return list<string> */
+    public static function tagList(?string $tags): array
+    {
+        return array_values(array_filter(array_map('trim', explode(',', (string) $tags)), static fn ($t) => $t !== ''));
     }
 
     /** Map a format (e.g. StoryGraph's "digital") onto FORMATS, or null. */
@@ -129,7 +158,7 @@ final class Books
     }
 
     /** @return list<array<string, mixed>> */
-    public function list(?string $status = null, string $q = '', ?int $limit = null): array
+    public function list(?string $status = null, string $q = '', ?int $limit = null, ?string $shelf = null): array
     {
         $sql = self::SELECT_BOOK . ' WHERE 1 = 1';
         $args = [];
@@ -138,15 +167,133 @@ final class Books
             $args[] = $status;
         }
         if ($q !== '') {
-            $sql .= ' AND (b.title LIKE ? OR b.author LIKE ? OR b.tags LIKE ? OR b.isbn = ?)';
+            $sql .= ' AND (b.title LIKE ? OR b.author LIKE ? OR b.tags LIKE ? OR b.series LIKE ? OR b.isbn = ?)';
             $like = '%' . addcslashes($q, '%_\\') . '%';
-            array_push($args, $like, $like, $like, $q);
+            array_push($args, $like, $like, $like, $like, $q);
+        }
+        if ($shelf !== null && $shelf !== '') {
+            $sql .= ' AND b.tags LIKE ?';
+            $args[] = '%' . addcslashes($shelf, '%_\\') . '%';
         }
         $sql .= " ORDER BY b.status = 'reading' DESC, COALESCE(last_finished, b.date_added) DESC, b.id DESC";
         if ($limit !== null) {
             $sql .= ' LIMIT ' . max(1, $limit);
         }
-        return array_map([self::class, 'cast'], $this->query($sql, $args)->fetchAll());
+        $books = array_map([self::class, 'cast'], $this->query($sql, $args)->fetchAll());
+        if ($shelf !== null && $shelf !== '') {
+            // The LIKE above is a rough cut; keep only books that really have this tag.
+            $books = array_values(array_filter($books, static fn (array $b) => in_array(
+                mb_strtolower($shelf), array_map('mb_strtolower', self::tagList($b['tags'])), true,
+            )));
+        }
+        return $books;
+    }
+
+    /**
+     * Shelves are your tags (StoryGraph's tags come in as shelves), with how many books
+     * are on each, alphabetically.
+     *
+     * @return list<array{name: string, count: int}>
+     */
+    public function shelves(): array
+    {
+        $counts = [];
+        foreach ($this->query("SELECT tags FROM books WHERE tags IS NOT NULL AND tags != ''")->fetchAll(PDO::FETCH_COLUMN) as $tags) {
+            foreach (self::tagList($tags) as $tag) {
+                $key = mb_strtolower($tag);
+                $counts[$key] ??= ['name' => $tag, 'count' => 0];
+                $counts[$key]['count']++;
+            }
+        }
+        uasort($counts, static fn (array $a, array $b) => strcasecmp($a['name'], $b['name']));
+        return array_values($counts);
+    }
+
+    /** Rename a shelf on every book (or merge it into an existing one); '' removes it. Returns the number of books changed. */
+    public function renameShelf(string $from, string $to): int
+    {
+        $to = trim($to);
+        if (str_contains($to, ',')) {
+            throw new InvalidArgumentException('Een plank mag geen komma bevatten.');
+        }
+        $changed = 0;
+        foreach ($this->list(null, '', null, $from) as $book) {
+            $tags = array_map(static fn (string $t) => mb_strtolower($t) === mb_strtolower($from) ? $to : $t, self::tagList($book['tags']));
+            $this->query('UPDATE books SET tags = ? WHERE id = ?', [self::normalizeTags(implode(',', $tags)), $book['id']]);
+            $changed++;
+        }
+        return $changed;
+    }
+
+    /**
+     * Series with how many books you have of each and how many you've read.
+     *
+     * @return list<array{name: string, books: int, read: int}>
+     */
+    public function seriesList(): array
+    {
+        return array_map(static fn (array $r) => ['name' => $r['series'], 'books' => (int) $r['books'], 'read' => (int) $r['read']],
+            $this->query(
+                "SELECT series, COUNT(*) AS books, SUM(status = 'read') AS `read` FROM books
+                 WHERE series IS NOT NULL AND series != '' GROUP BY series ORDER BY series",
+            )->fetchAll());
+    }
+
+    /** @return list<array<string, mixed>> The books of a series, in reading order. */
+    public function seriesBooks(string $series): array
+    {
+        return array_map([self::class, 'cast'], $this->query(
+            self::SELECT_BOOK . ' WHERE b.series = ? ORDER BY b.series_number IS NULL, b.series_number, b.title',
+            [$series],
+        )->fetchAll());
+    }
+
+    // --- notes and quotes -------------------------------------------------------
+
+    public const MAX_NOTE = 5000;
+
+    /** @return list<array{id: int, kind: string, text: string, page: ?int, public: bool, created_at: string}> */
+    public function notes(int $bookId, bool $publicOnly = false): array
+    {
+        $rows = $this->query(
+            'SELECT id, kind, text, page, public, created_at FROM notes WHERE book_id = ?'
+            . ($publicOnly ? ' AND public = 1' : '') . ' ORDER BY page IS NULL, page, id',
+            [$bookId],
+        )->fetchAll();
+        return array_map(static fn (array $n) => [
+            'id' => (int) $n['id'], 'kind' => $n['kind'], 'text' => $n['text'],
+            'page' => $n['page'] !== null ? (int) $n['page'] : null, 'public' => (bool) $n['public'], 'created_at' => $n['created_at'],
+        ], $rows);
+    }
+
+    /** @param array<string, mixed> $input kind, text, page, public */
+    public function addNote(int $bookId, array $input): int
+    {
+        $text = self::text($input['text'] ?? null, self::MAX_NOTE);
+        if ($text === '') {
+            throw new InvalidArgumentException('Schrijf eerst iets op.');
+        }
+        $page = self::text($input['page'] ?? null, 10);
+        if ($page !== '' && (!ctype_digit($page) || (int) $page > self::MAX_PAGES)) {
+            throw new InvalidArgumentException('Pagina moet een getal zijn.');
+        }
+        $this->query(
+            'INSERT INTO notes (book_id, kind, text, page, public) VALUES (?, ?, ?, ?, ?)',
+            [$bookId, ($input['kind'] ?? '') === 'quote' ? 'quote' : 'note', $text, $page === '' ? null : (int) $page,
+             in_array($input['public'] ?? null, ['on', '1', 1, true], true) ? 1 : 0],
+        );
+        return (int) $this->db->lastInsertId();
+    }
+
+    /** Delete a note and return its book's id (null if it doesn't exist). */
+    public function deleteNote(int $noteId): ?int
+    {
+        $bookId = $this->query('SELECT book_id FROM notes WHERE id = ?', [$noteId])->fetchColumn();
+        if ($bookId === false) {
+            return null;
+        }
+        $this->query('DELETE FROM notes WHERE id = ?', [$noteId]);
+        return (int) $bookId;
     }
 
     /** @return array<string, int> */
@@ -212,10 +359,10 @@ final class Books
         $this->db->beginTransaction();
         try {
             $this->query(
-                'INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, owned, date_added)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())',
+                'INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, owned, series, series_number, date_added)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())',
                 [$data['title'], $data['author'], $data['isbn'], $data['format'], $data['pages'], $data['status'],
-                 $data['rating'], $data['review'], $data['tags'], $data['owned']],
+                 $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number']],
             );
             $id = (int) $this->db->lastInsertId();
             $today = date('Y-m-d');
@@ -237,10 +384,10 @@ final class Books
     {
         $this->query(
             'UPDATE books SET title = ?, author = ?, isbn = ?, format = ?, pages = ?, status = ?, rating = ?,
-                    review = ?, tags = ?, owned = ?
+                    review = ?, tags = ?, owned = ?, series = ?, series_number = ?
              WHERE id = ?',
             [$data['title'], $data['author'], $data['isbn'], $data['format'], $data['pages'], $data['status'],
-             $data['rating'], $data['review'], $data['tags'], $data['owned'], $id],
+             $data['rating'], $data['review'], $data['tags'], $data['owned'], $data['series'], $data['series_number'], $id],
         );
     }
 
@@ -386,6 +533,7 @@ final class Books
         }
         foreach ($books as &$book) {
             $book['reads'] = $reads[$book['id']] ?? [];
+            $book['notes'] = $this->notes($book['id']);
         }
         $goals = array_map('intval', $this->query('SELECT year, books FROM goals ORDER BY year')->fetchAll(PDO::FETCH_KEY_PAIR));
         return ['books' => $books, 'goals' => $goals];
@@ -412,6 +560,7 @@ final class Books
         'author' => 'auteur', 'isbn' => 'ISBN', 'format' => 'formaat', 'pages' => "pagina's", 'rating' => 'beoordeling',
         'review' => 'recensie', 'tags' => 'tags', 'moods' => 'moods', 'contributors' => 'medewerkers',
         'content_warnings' => 'inhoudswaarschuwingen', 'content_warning_description' => 'toelichting inhoudswaarschuwingen',
+        'series' => 'serie', 'series_number' => 'deel in serie',
     ];
 
     /**
@@ -428,7 +577,9 @@ final class Books
         $this->db->beginTransaction();
         try {
             foreach ($books as $book) {
-                $existing = $this->findDuplicate($book['title'], $book['author'], $book['isbn']);
+                // StoryGraph's own id first: it still matches after you changed the title.
+                $existing = $this->findByStorygraphId($book['storygraph_id'] ?? null)
+                    ?? $this->findDuplicate($book['title'], $book['author'], $book['isbn']);
                 if ($existing === null) {
                     $this->insertImported($book);
                     $result['imported'][] = $book['title'];
@@ -455,17 +606,28 @@ final class Books
         return $result;
     }
 
+    /** @return array<string, mixed>|null */
+    private function findByStorygraphId(?string $id): ?array
+    {
+        if ($id === null || $id === '') {
+            return null;
+        }
+        $book = $this->query(self::SELECT_BOOK . ' WHERE b.storygraph_id = ? ORDER BY b.id LIMIT 1', [$id])->fetch();
+        return $book ? self::cast($book) : null;
+    }
+
     /** @param array<string, mixed> $book */
     private function insertImported(array $book): void
     {
         $this->query(
             "INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, moods, owned, contributors,
-                                content_warnings, content_warning_description, details, source, date_added)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'storygraph', COALESCE(?, CURDATE()))",
+                                content_warnings, content_warning_description, details, series, series_number, storygraph_id,
+                                source, date_added)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'storygraph', COALESCE(?, CURDATE()))",
             [$book['title'], $book['author'], $book['isbn'], $book['format'], $book['pages'], $book['status'], $book['rating'],
              $book['review'], $book['tags'], $book['moods'], $book['owned'], $book['contributors'], $book['content_warnings'],
              $book['content_warning_description'], $book['details'] ? json_encode($book['details'], JSON_UNESCAPED_UNICODE) : null,
-             $book['date_added']],
+             $book['series'] ?? null, $book['series_number'] ?? null, $book['storygraph_id'] ?? null, $book['date_added']],
         );
         $id = (int) $this->db->lastInsertId();
         foreach ($book['reads'] as [$started, $finished]) {
@@ -490,6 +652,10 @@ final class Books
                 $set[$field] = $book[$field];
                 $changes[] = $label;
             }
+        }
+        // The StoryGraph id is bookkeeping, not something to report.
+        if (($existing['storygraph_id'] ?? null) === null && ($book['storygraph_id'] ?? null) !== null) {
+            $set['storygraph_id'] = $book['storygraph_id'];
         }
         if (!$existing['owned'] && $book['owned']) {
             $set['owned'] = 1;
@@ -595,6 +761,9 @@ final class Books
         $book['id'] = (int) $book['id'];
         $book['rating'] = $book['rating'] !== null ? (float) $book['rating'] : null;
         $book['pages'] = $book['pages'] !== null ? (int) $book['pages'] : null;
+        if (array_key_exists('series_number', $book)) {
+            $book['series_number'] = $book['series_number'] !== null ? (float) $book['series_number'] : null;
+        }
         $book['owned'] = (bool) $book['owned'];
         if (array_key_exists('details', $book)) {
             $book['details'] = is_string($book['details']) ? (json_decode($book['details'], true) ?: []) : [];

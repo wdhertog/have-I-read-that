@@ -16,6 +16,8 @@ final class Export
         'Dates Read', 'Read Count', 'Moods', 'Pace', 'Character- or Plot-Driven?', 'Strong Character Development?',
         'Loveable Characters?', 'Diverse Characters?', 'Flawed Characters?', 'Star Rating', 'Review',
         'Content Warnings', 'Content Warning Description', 'Tags', 'Owned?',
+        // Not StoryGraph's, but this app reads them back in.
+        'Series', 'Series Number',
     ];
 
     private const STATUS = ['read' => 'read', 'to-read' => 'to-read', 'reading' => 'currently-reading', 'dnf' => 'did-not-finish'];
@@ -42,7 +44,8 @@ final class Export
             $row = array_fill_keys(self::COLUMNS, '');
             $row['Title'] = $book['title'];
             $row['Authors'] = $book['author'];
-            $row['ISBN/UID'] = (string) $book['isbn'];
+            // Without an ISBN, StoryGraph's own id keeps the book recognisable on a re-import.
+            $row['ISBN/UID'] = (string) ($book['isbn'] ?? $book['storygraph_id'] ?? '');
             $row['Format'] = self::FORMAT[$book['format'] ?? ''] ?? '';
             $row['Read Status'] = self::STATUS[$book['status']];
             $row['Date Added'] = self::slashDate($book['date_added']);
@@ -62,6 +65,8 @@ final class Export
             $row['Review'] = (string) $book['review'];
             $row['Tags'] = (string) $book['tags'];
             $row['Owned?'] = $book['owned'] ? 'Yes' : 'No';
+            $row['Series'] = (string) ($book['series'] ?? '');
+            $row['Series Number'] = ($book['series_number'] ?? null) !== null ? rtrim(rtrim(number_format((float) $book['series_number'], 1, '.', ''), '0'), '.') : '';
             fputcsv($out, array_map([self::class, 'cell'], array_values($row)), escape: '');
         }
         rewind($out);

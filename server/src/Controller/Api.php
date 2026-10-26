@@ -216,6 +216,30 @@ final class Api
         return Response::json(['toot' => $toot], $toot['posted'] ? 200 : 502);
     }
 
+    public function collections(Request $request): Response
+    {
+        return Response::json(['shelves' => $this->app->books->shelves(), 'series' => $this->app->books->seriesList()]);
+    }
+
+    public function addNote(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->notFound();
+        }
+        try {
+            $this->app->books->addNote($id, $request->json());
+        } catch (InvalidArgumentException $e) {
+            return Response::json(['error' => $e->getMessage()], 422);
+        }
+        return Response::json(['book' => $this->detail($this->app->books->find($id))], 201);
+    }
+
+    public function deleteNote(Request $request, int $id): Response
+    {
+        $bookId = $this->app->books->deleteNote($id);
+        return $bookId ? Response::json(['book' => $this->detail($this->app->books->find($bookId))]) : $this->notFound();
+    }
+
     /** Search Open Library by title, author or ISBN (for books shared from another app). */
     public function search(Request $request): Response
     {
@@ -280,7 +304,7 @@ final class Api
             $out[$key] = $book[$key] ?? null;
         }
         $out['last_finished'] = $book['last_finished'] ?? null;
-        foreach (['contributors', 'content_warnings', 'content_warning_description'] as $key) {
+        foreach (['contributors', 'content_warnings', 'content_warning_description', 'series', 'series_number'] as $key) {
             $out[$key] = $book[$key] ?? null;
         }
         $out['details'] = (object) ($book['details'] ?? []);
@@ -301,6 +325,7 @@ final class Api
         return $this->present($book + ['last_finished' => $finished ? max($finished) : null]) + [
             'reads' => $reads,
             'posts' => $this->app->books->posts($book['id']),
+            'notes' => $this->app->books->notes($book['id']),
             'toot_preview' => [
                 'started' => $this->app->tooter->compose($book, 'started'),
                 'finished' => $this->app->tooter->compose($book, 'finished'),

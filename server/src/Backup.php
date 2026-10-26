@@ -13,7 +13,7 @@ use PDO;
 final class Backup
 {
     /** Everything except login_attempts; foreign keys are off while restoring, so order is free. */
-    private const TABLES = ['books', 'reads', 'posts', 'api_tokens', 'goals', 'settings', 'schema_migrations'];
+    private const TABLES = ['books', 'reads', 'posts', 'notes', 'api_tokens', 'goals', 'settings', 'schema_migrations'];
 
     public function __construct(private PDO $db)
     {

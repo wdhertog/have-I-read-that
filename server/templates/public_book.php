@@ -5,6 +5,7 @@
   <div>
     <h1><?= $v->e($book['title']) ?></h1>
     <?php if ($book['author'] !== ''): ?><p class="muted"><?= $v->e($book['author']) ?></p><?php endif ?>
+    <?php if ($book['series']): ?><p class="muted"><?= $v->e($book['series']) ?><?= $book['series_number'] !== null ? ', deel ' . $v->e(rtrim(rtrim(number_format($book['series_number'], 1, ',', ''), '0'), ',')) : '' ?></p><?php endif ?>
     <?php if ($book['rating']): ?><p><span class="stars"><?= $v->stars($book['rating']) ?></span> <span class="muted"><?= $v->rating($book['rating']) ?></span></p><?php endif ?>
     <?php if ($book['status'] === 'reading'): ?>
       <p><span class="badge reading">Aan het lezen</span></p>
@@ -16,3 +17,9 @@
     <?php if ($showReviews && $book['review']): ?><blockquote><?= $v->e($book['review']) ?></blockquote><?php endif ?>
   </div>
 </section>
+<?php if ($quotes): ?>
+<section class="card">
+  <h2>Citaten en notities</h2>
+  <?= $v->partial('_notes', ['notes' => $quotes, 'editable' => false]) ?>
+</section>
+<?php endif ?>
