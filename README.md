@@ -179,7 +179,9 @@ gevraagd; elke bron vult aan wat de vorige mist:
 - **Google Books**: gegevens en covers, ook van veel Nederlandse boeken. Werkt zonder
   sleutel; bij "te veel verzoeken" kun je een gratis `GOOGLE_BOOKS_API_KEY` instellen.
 - **Wikidata**: alleen de serie en het deel (de verhaalreeks, niet de reeks van de
-  uitgever). Bij een vertaling wordt ook naar het oorspronkelijke werk gekeken.
+  uitgever). Eerst op ISBN; omdat weinig uitgaven met ISBN in Wikidata staan, daarna
+  op titel en auteur zoals de bronnen ervoor die vonden. Een serie telt alleen als de
+  titel én de achternaam van de auteur kloppen. Zet `wikidata` daarom achteraan.
 
 Volgorde en keuze stel je in met `METADATA_SOURCES` en `COVER_SOURCES`. Onder
 *Import/export → Gegevens aanvullen* zoek je voor al je boeken met een ISBN de lege

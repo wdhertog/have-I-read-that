@@ -276,7 +276,43 @@ XML;
         self::assertSame(['series' => 'Schijfwereld', 'series_number' => null], Wikidata::parse($odd));
     }
 
-    public function testSeriesIsFilledInFromWikidata(): void
+    public function testWikidataFallsBackToTitleAndAuthor(): void
+    {
+        $hit = static fn (string $item, string $name, string $author, string $series, ?string $ordinal) => [
+            'item' => ['value' => "http://www.wikidata.org/entity/{$item}"], 'name' => ['value' => $name],
+            'authorName' => ['value' => $author], 'seriesLabel' => ['value' => $series],
+        ] + ($ordinal !== null ? ['ordinal' => ['value' => $ordinal]] : []);
+        $answer = json_encode(['results' => ['bindings' => [
+            $hit('Q43361', "Harry Potter and the Philosopher's Stone", 'J. K. Rowling', 'Harry Potter', '1'),
+            $hit('Q47209', 'Harry Potter and the Chamber of Secrets', 'J. K. Rowling', 'Harry Potter', '2'),
+            $hit('Q47209', 'Harry Potter en de Geheime Kamer', 'J. K. Rowling', 'Harry Potter', '2'),
+            $hit('Q99999', 'De geheime kamer', 'Iemand Anders', 'Spannende reeks', '7'),
+        ]]]);
+        $asked = [];
+        $get = static function (string $url) use (&$asked, $answer): ?string {
+            $asked[] = urldecode($url);
+            return str_contains(urldecode($url), 'mwapi') ? $answer : '{"results":{"bindings":[]}}';
+        };
+        $wikidata = new Wikidata(\Closure::fromCallable($get));
+
+        $found = $wikidata->find('9781338878936', 'Harry Potter and the Chamber of Secrets', 'J.K. Rowling');
+        self::assertSame(['series' => 'Harry Potter', 'series_number' => 2.0], $found);
+        self::assertCount(2, $asked, 'first by ISBN, then by title');
+        self::assertStringContainsString('harry potter and the chamber of secrets haswbstatement:P179', $asked[1]);
+
+        // A Dutch translation by its Dutch title; a subtitle doesn't get in the way.
+        self::assertSame(2.0, $wikidata->find('9789076174082', 'Harry Potter en de geheime kamer: deel 2', 'Rowling, J.K.')['series_number']);
+        // Same title, other author: not taken.
+        self::assertNull($wikidata->find('9789000000000', 'De geheime kamer', 'Gerard Reve'));
+        // Nothing to search with.
+        $asked = [];
+        self::assertNull($wikidata->find('9789000000000'));
+        self::assertCount(1, $asked);
+        // Quotes can't break out of the query.
+        self::assertStringNotContainsString('"x"', Wikidata::titleQuery('Een "x" boek'));
+    }
+
+        public function testSeriesIsFilledInFromWikidata(): void
     {
         $config = $this->config(['METADATA_SOURCES' => 'kb,wikidata']);
         $asked = [];

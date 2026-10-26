@@ -6,8 +6,12 @@ namespace App;
 
 /**
  * Wikidata, for the one thing the library catalogues don't know: which series a book
- * belongs to ("Harry Potter", part 3), not the publisher's series. Looked up by ISBN
- * on the edition, or on the work it is an edition or translation of.
+ * belongs to ("Harry Potter", part 2), not the publisher's series.
+ *
+ * Few editions are in Wikidata with their ISBN, so it looks in two ways: by ISBN on
+ * the edition (or the work it translates), and otherwise by title and author on the
+ * work itself. The second only counts when both the title and the author's surname
+ * match.
  */
 final class Wikidata
 {
@@ -18,11 +22,22 @@ final class Wikidata
     {
     }
 
+    /** Whether the query service answers at all (for bin/lookup.php). */
+    public function reachable(): bool
+    {
+        return ($this->get)(self::URL . rawurlencode('ASK {}')) !== null;
+    }
+
     /** @return array{series: string, series_number: ?float}|null */
-    public function byIsbn(string $isbn): ?array
+    public function find(string $isbn, ?string $title = null, ?string $author = null): ?array
     {
         $json = ($this->get)(self::URL . rawurlencode(self::query($isbn)));
-        return $json !== null ? self::parse($json) : null;
+        $found = $json !== null ? self::parse($json) : null;
+        if ($found === null && $title !== null && self::words($title) !== '') {
+            $json = ($this->get)(self::URL . rawurlencode(self::titleQuery($title)));
+            $found = $json !== null ? self::parseTitleSearch($json, $title, (string) $author) : null;
+        }
+        return $found;
     }
 
     /** SPARQL that finds the series of every item carrying one of the ISBN's spellings. */
@@ -40,6 +55,29 @@ final class Wikidata
               SERVICE wikibase:label { bd:serviceParam wikibase:language "nl,en,mul". }
             }
             LIMIT 20
+            SPARQL;
+    }
+
+    /** SPARQL that searches items in a series by title, with their names and authors. */
+    public static function titleQuery(string $title): string
+    {
+        $search = self::words(self::mainTitle($title)) . ' haswbstatement:P179';
+        return <<<SPARQL
+            SELECT ?item ?seriesLabel ?ordinal ?name ?authorName WHERE {
+              SERVICE wikibase:mwapi {
+                bd:serviceParam wikibase:endpoint "www.wikidata.org" ; wikibase:api "Search" ;
+                  mwapi:srsearch "{$search}" ; mwapi:srlimit "10" .
+                ?item wikibase:apiOutputItem mwapi:title .
+              }
+              ?item p:P179 ?statement .
+              ?statement ps:P179 ?series .
+              OPTIONAL { ?statement pq:P1545 ?ordinal }
+              { ?item rdfs:label ?name } UNION { ?item skos:altLabel ?name }
+              FILTER(LANG(?name) IN ("nl", "en", "mul"))
+              OPTIONAL { ?item wdt:P50 ?author . ?author rdfs:label ?authorName . FILTER(LANG(?authorName) IN ("nl", "en", "mul")) }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "nl,en,mul". }
+            }
+            LIMIT 500
             SPARQL;
     }
 
@@ -94,5 +132,71 @@ final class Wikidata
             }
         }
         return $best;
+    }
+
+    /**
+     * The series of the search hit whose name is the book's title and whose author
+     * shares a surname with the book's.
+     *
+     * @return array{series: string, series_number: ?float}|null
+     */
+    public static function parseTitleSearch(string $json, string $title, string $author): ?array
+    {
+        $rows = json_decode($json, true)['results']['bindings'] ?? null;
+        if (!is_array($rows)) {
+            return null;
+        }
+        $titles = array_unique([self::words($title), self::words(self::mainTitle($title))]);
+        $surnames = self::surnames($author);
+        $items = [];
+        foreach ($rows as $row) {
+            $item = (string) ($row['item']['value'] ?? '');
+            $items[$item]['names'][self::words((string) ($row['name']['value'] ?? ''))] = true;
+            foreach (self::surnames((string) ($row['authorName']['value'] ?? '')) as $surname) {
+                $items[$item]['surnames'][$surname] = true;
+            }
+            $items[$item]['rows'][] = $row + ['direct' => ['value' => '1']];
+        }
+        foreach ($items as $item) {
+            $titleMatches = array_intersect($titles, array_keys($item['names'])) !== [];
+            $authorMatches = $surnames === [] || array_intersect($surnames, array_keys($item['surnames'] ?? [])) !== [];
+            if ($titleMatches && $authorMatches) {
+                $found = self::parse((string) json_encode(['results' => ['bindings' => $item['rows']]]));
+                if ($found !== null) {
+                    return $found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** "De avonden: een winterverhaal (Reve #1)" → "De avonden" */
+    private static function mainTitle(string $title): string
+    {
+        return trim(preg_split('/\s*[:(\[]/u', $title)[0] ?? $title);
+    }
+
+    /** Lowercase letters and digits only, single spaces: for comparing and searching. */
+    private static function words(string $text): string
+    {
+        $text = mb_strtolower($text);
+        if (function_exists('transliterator_transliterate')) {
+            $text = (string) transliterator_transliterate('Any-Latin; Latin-ASCII', $text);
+        }
+        return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text));
+    }
+
+    /** @return list<string> Last word of each name: "J.K. Rowling, Jim Kay" → ["rowling", "kay"] */
+    private static function surnames(string $authors): array
+    {
+        $surnames = [];
+        foreach (preg_split('/\s*[,;&]\s*|\s+(?:en|and)\s+/u', $authors) ?: [] as $name) {
+            $words = explode(' ', self::words($name));
+            $last = end($words);
+            if ($last !== false && mb_strlen($last) > 1) {
+                $surnames[] = $last;
+            }
+        }
+        return array_values(array_unique($surnames));
     }
 }

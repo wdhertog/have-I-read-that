@@ -27,6 +27,11 @@ final class Catalog
         $this->wikidata = new Wikidata($get);
     }
 
+    public function wikidata(): Wikidata
+    {
+        return $this->wikidata;
+    }
+
     /** @return list<string> */
     public function metadataSources(): array
     {
@@ -54,7 +59,8 @@ final class Catalog
                     'kb' => $this->kb->byIsbn($isbn),
                     'openlibrary' => OpenLibrary::byIsbn($isbn),
                     'google' => $this->google->byIsbn($isbn),
-                    'wikidata' => $this->wikidata->byIsbn($isbn),
+                    // Last, as it searches by the title and author found so far.
+                    'wikidata' => $this->wikidata->find($isbn, $merged['title'] ?? null, $merged['author'] ?? null),
                     default => null,
                 };
             } catch (\RuntimeException) {
