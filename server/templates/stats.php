@@ -1,5 +1,16 @@
 <?php /** @var App\View $v */ ?>
 <section class="card">
+  <h1>Leesdoel <?= $year ?></h1>
+  <?= $v->partial('_goal', ['goal' => $goal]) ?>
+  <form method="post" action="<?= $v->url('/stats/goal') ?>" class="row">
+    <?= $v->csrf() ?>
+    <input type="hidden" name="year" value="<?= $year ?>">
+    <input type="number" name="books" min="0" max="<?= App\Books::MAX_GOAL ?>" value="<?= $v->e($goal['goal']) ?>" placeholder="Aantal boeken (leeg = geen doel)">
+    <button class="secondary">Doel opslaan</button>
+  </form>
+</section>
+
+<section class="card">
   <h1>Gelezen per jaar</h1>
   <?php if (!$years): ?><p class="muted">Nog geen uitgelezen boeken met een datum.</p><?php endif ?>
   <table class="bars">

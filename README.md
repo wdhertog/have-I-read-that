@@ -19,6 +19,9 @@ android/   Kotlin/Jetpack Compose-app die met de API praat
 - Eenmalige import van een StoryGraph-export (CSV), zonder te posten; dubbel importeren is veilig
 - Openbare alleen-lezen pagina op `/`: wat je nu leest en wat je per jaar gelezen hebt
   (je verlanglijst blijft privé)
+- Leesdoel per jaar en leesvoortgang (pagina of percentage), eventueel met een toot
+- Export naar CSV (StoryGraph-formaat, weer te importeren) en JSON
+- Waarschuwing als je een boek toevoegt dat er al in staat
 - Statistieken per jaar, boeken zoeken via Open Library, covers via Open Library
 - Eén gebruiker met een wachtwoord; de app logt in met een token dat je op de site aanmaakt
 
@@ -123,6 +126,7 @@ Een submap (bijv. `example.nl/boeken/`) werkt ook.
 | `MASTODON_POST_BY_DEFAULT` | `true` | Of “Post naar Mastodon” standaard aangevinkt is (ook in de app) |
 | `MASTODON_TEMPLATE_FINISHED` | zie `.env.example` | Tekst bij uitlezen |
 | `MASTODON_TEMPLATE_STARTED` | zie `.env.example` | Tekst bij beginnen |
+| `MASTODON_TEMPLATE_PROGRESS` | `📖 {percent}% gelezen van {title} – {author}` + hashtags | Tekst bij voortgang; ook `{page}` en `{pages}` |
 | `MASTODON_MAX_CHARS` | `500` | Lange recensies worden ingekort tot de toot past |
 
 In de templates kun je `{title}`, `{author}`, `{stars}`, `{rating}`, `{review}` en

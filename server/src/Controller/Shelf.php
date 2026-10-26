@@ -26,6 +26,7 @@ final class Shelf
             'years' => $years,
             'year' => $year,
             'books' => $this->app->books->readInYear($year),
+            'goal' => $this->app->books->goalProgress((int) date('Y')),
             'showReviews' => $this->app->config->bool('PUBLIC_SHOW_REVIEWS', true),
         ]);
     }

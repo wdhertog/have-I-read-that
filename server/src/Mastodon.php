@@ -125,6 +125,9 @@ final class Mastodon
             '{stars}' => self::stars($book['rating'] ?? null),
             '{rating}' => ($book['rating'] ?? null) ? self::formatRating($book['rating']) . '/5' : '',
             '{isbn}' => (string) ($book['isbn'] ?? ''),
+            '{percent}' => isset($book['progress_percent']) ? (string) $book['progress_percent'] : '',
+            '{page}' => isset($book['progress_page']) ? (string) $book['progress_page'] : '',
+            '{pages}' => isset($book['pages']) ? (string) $book['pages'] : '',
         ];
         $render = static function (string $reviewText) use ($template, $fields): string {
             $text = strtr($template, $fields + ['{review}' => $reviewText]);

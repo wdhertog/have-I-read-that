@@ -18,6 +18,13 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+val FORMATS = linkedMapOf(
+    "paperback" to "Paperback",
+    "hardcover" to "Hardcover",
+    "ebook" to "E-book",
+    "audio" to "Luisterboek",
+)
+
 val STATUSES = linkedMapOf(
     "reading" to "Aan het lezen",
     "to-read" to "Wil ik lezen",
@@ -41,6 +48,8 @@ data class Book(
     @SerialName("date_added") val dateAdded: String? = null,
     @SerialName("last_finished") val lastFinished: String? = null,
     @SerialName("cover_url") val coverUrl: String? = null,
+    @SerialName("progress_page") val progressPage: Int? = null,
+    @SerialName("progress_percent") val progressPercent: Int? = null,
     val reads: List<Read> = emptyList(),
     val posts: List<Post> = emptyList(),
 )
@@ -85,7 +94,10 @@ data class MastodonInfo(
 )
 
 @Serializable
-data class Me(val ok: Boolean, val mastodon: MastodonInfo)
+data class Goal(val year: Int, val goal: Int? = null, val read: Int = 0)
+
+@Serializable
+data class Me(val ok: Boolean, val mastodon: MastodonInfo, val goal: Goal? = null)
 
 @Serializable
 data class NewBook(
@@ -96,8 +108,21 @@ data class NewBook(
     val status: String,
     val rating: Double? = null,
     val review: String? = null,
+    val format: String? = null,
+    val tags: String? = null,
+    val owned: Boolean = false,
     val toot: Boolean = false,
+    @SerialName("allow_duplicate") val allowDuplicate: Boolean = false,
 )
+
+@Serializable
+data class ProgressRequest(val page: Int? = null, val percent: Int? = null, val toot: Boolean = false)
+
+@Serializable
+data class ReadDates(val started: String? = null, val finished: String? = null)
+
+@Serializable
+private data class DuplicateBody(val error: String = "", val existing: Book? = null)
 
 @Serializable
 data class StartRequest(val date: String, val toot: Boolean)
@@ -111,7 +136,10 @@ data class FinishRequest(
     val toot: Boolean = false,
 )
 
-class ApiException(message: String) : IOException(message)
+open class ApiException(message: String) : IOException(message)
+
+/** The server already has a book like this one (HTTP 409). */
+class DuplicateException(message: String, val existing: Book) : ApiException(message)
 
 /** Talks to the /api endpoints of the PHP server. */
 class ApiClient(serverUrl: String, private val token: String) {
@@ -141,6 +169,26 @@ class ApiClient(serverUrl: String, private val token: String) {
 
     suspend fun lookup(isbn: String): LookupResponse = get("api/lookup", mapOf("isbn" to isbn))
 
+    // Edits go through POST: some shared hosting blocks PUT and DELETE.
+    suspend fun update(id: Int, book: NewBook): BookResponse = post("api/books/$id", json.encodeToString(book))
+
+    suspend fun delete(id: Int) {
+        execute(Request.Builder().url(url("api/books/$id/delete")).post("{}".toRequestBody(JSON)))
+    }
+
+    suspend fun progress(id: Int, request: ProgressRequest): BookResponse =
+        post("api/books/$id/progress", json.encodeToString(request))
+
+    suspend fun addRead(bookId: Int, dates: ReadDates): BookResponse =
+        post("api/books/$bookId/reads", json.encodeToString(dates))
+
+    suspend fun updateRead(readId: Int, dates: ReadDates): BookResponse =
+        post("api/reads/$readId", json.encodeToString(dates))
+
+    suspend fun deleteRead(readId: Int): BookResponse = post("api/reads/$readId/delete", "{}")
+
+    private fun url(path: String): HttpUrl = base.newBuilder().addPathSegments(path).build()
+
     private suspend inline fun <reified T> get(path: String, query: Map<String, String?> = emptyMap()): T {
         val url = base.newBuilder().addPathSegments(path).apply {
             query.forEach { (key, value) -> if (!value.isNullOrBlank()) addQueryParameter(key, value) }
@@ -157,6 +205,10 @@ class ApiClient(serverUrl: String, private val token: String) {
         val request = builder.header("Authorization", "Bearer $token").header("Accept", "application/json").build()
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
+            if (response.code == 409) {
+                val duplicate = runCatching { json.decodeFromString<DuplicateBody>(body) }.getOrNull()
+                duplicate?.existing?.let { throw DuplicateException(duplicate.error, it) }
+            }
             if (!response.isSuccessful) {
                 throw ApiException(errorMessage(body) ?: "Server gaf HTTP ${response.code}")
             }

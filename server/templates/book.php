@@ -8,6 +8,7 @@
       <span class="badge <?= $book['status'] ?>"><?= $statuses[$book['status']] ?></span>
       <?php if ($book['rating']): ?><span class="stars"><?= $v->stars($book['rating']) ?></span> <span class="muted"><?= $v->rating($book['rating']) ?></span><?php endif ?>
     </p>
+    <?= $v->partial('_progress', ['b' => $book]) ?>
     <dl>
       <?php foreach (['isbn' => 'ISBN', 'pages' => "Pagina's", 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods'] as $key => $label): ?>
         <?php if ($book[$key]): ?><dt><?= $label ?></dt><dd><?= $v->e($book[$key]) ?></dd><?php endif ?>
@@ -33,6 +34,22 @@
     <label>Begonnen op <input type="date" name="started" value="<?= $today ?>"></label>
     <label class="check"><input type="checkbox" name="toot" <?= $postByDefault ? 'checked' : '' ?>> Post naar Mastodon</label>
     <button><?= $book['status'] === 'read' ? 'Opnieuw lezen' : 'Start' ?></button>
+  </form>
+</section>
+<?php endif ?>
+
+<?php if ($book['status'] === 'reading'): ?>
+<section class="card">
+  <h2>Hoe ver ben je?</h2>
+  <form method="post" action="<?= $v->url("/books/{$book['id']}/progress") ?>">
+    <?= $v->csrf() ?>
+    <?php if ($book['pages']): ?>
+      <label>Op pagina (van <?= (int) $book['pages'] ?>) <input type="number" name="page" min="0" max="<?= (int) $book['pages'] ?>" value="<?= $v->e($book['progress_page']) ?>"></label>
+    <?php else: ?>
+      <label>Percentage gelezen <input type="number" name="percent" min="0" max="100" value="<?= $v->e($book['progress_percent']) ?>"></label>
+    <?php endif ?>
+    <label class="check"><input type="checkbox" name="toot"> Post naar Mastodon</label>
+    <button>Bijwerken</button>
   </form>
 </section>
 <?php endif ?>

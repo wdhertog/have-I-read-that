@@ -60,7 +60,15 @@ final class Database
             }
             // MySQL commits DDL implicitly, so no transaction around this.
             foreach (self::statements((string) file_get_contents($file)) as $sql) {
-                $db->exec($sql);
+                try {
+                    $db->exec($sql);
+                } catch (\PDOException $e) {
+                    // The change is already there (tables made by hand, or a half-finished
+                    // earlier run): table exists, duplicate column, duplicate key.
+                    if (!in_array($e->errorInfo[1] ?? null, [1050, 1060, 1061], true)) {
+                        throw $e;
+                    }
+                }
             }
             $db->prepare('INSERT INTO schema_migrations (version) VALUES (?)')->execute([$version]);
             $applied[] = $version;

@@ -11,6 +11,7 @@ final class Config
 {
     public const DEFAULT_TEMPLATE_FINISHED = "📖 Uitgelezen: {title} – {author}\n{stars}\n\n{review}\n\n#boeken #bookstodon";
     public const DEFAULT_TEMPLATE_STARTED = "📚 Begonnen aan: {title} – {author}\n\n#boeken #bookstodon";
+    public const DEFAULT_TEMPLATE_PROGRESS = "📖 {percent}% gelezen van {title} – {author}\n\n#boeken #bookstodon";
 
     /** @param array<string, string> $values */
     public function __construct(private array $values)
@@ -61,6 +62,11 @@ final class Config
     public function templateFinished(): string
     {
         return str_replace('\n', "\n", $this->get('MASTODON_TEMPLATE_FINISHED', self::DEFAULT_TEMPLATE_FINISHED));
+    }
+
+    public function templateProgress(): string
+    {
+        return str_replace('\n', "\n", $this->get('MASTODON_TEMPLATE_PROGRESS', self::DEFAULT_TEMPLATE_PROGRESS));
     }
 
     public function templateStarted(): string

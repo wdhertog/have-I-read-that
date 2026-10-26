@@ -1,5 +1,6 @@
 package app.haveireadthat.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,16 +9,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -38,22 +45,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.haveireadthat.Book
 import app.haveireadthat.BookResponse
 import app.haveireadthat.FinishRequest
+import app.haveireadthat.ProgressRequest
+import app.haveireadthat.Read
+import app.haveireadthat.ReadDates
 import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
 import app.haveireadthat.StartRequest
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/** Which read the dates dialog is editing: an existing one, or a new one for this book. */
+private sealed interface ReadEdit {
+    data class Existing(val read: Read) : ReadEdit
+    data object New : ReadEdit
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit) {
+fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) -> Unit) {
     var book by remember { mutableStateOf<Book?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var readEdit by remember { mutableStateOf<ReadEdit?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -95,6 +114,12 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Terug") }
                 },
+                actions = {
+                    if (book != null) {
+                        IconButton(onClick = { onEdit(id) }) { Icon(Icons.Default.Edit, contentDescription = "Bewerken") }
+                        IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Verwijderen") }
+                    }
+                },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -115,6 +140,11 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit) {
         ) {
             Header(current)
 
+            if (current.status == "reading") {
+                ProgressCard(current, busy) { request ->
+                    act("Bijgewerkt.") { settings.client().progress(current.id, request) }
+                }
+            }
             if (current.status != "reading") {
                 StartCard(busy, settings.postByDefault, again = current.status == "read") { toot ->
                     act("Veel leesplezier!") {
@@ -129,8 +159,52 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit) {
                     }
                 }
             }
-            History(current)
+            Reads(current, onEdit = { readEdit = ReadEdit.Existing(it) }, onAdd = { readEdit = ReadEdit.New })
+            Posts(current)
         }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Boek verwijderen?") },
+            text = { Text("“${book?.title}” en alle leesmomenten worden verwijderd.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    scope.launch {
+                        try {
+                            settings.client().delete(id)
+                            onBack()
+                        } catch (e: Exception) {
+                            snackbar.showSnackbar("Verwijderen mislukt: ${e.message}")
+                        }
+                    }
+                }) { Text("Verwijderen") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuleren") } },
+        )
+    }
+
+    readEdit?.let { edit ->
+        val existing = (edit as? ReadEdit.Existing)?.read
+        ReadDialog(
+            read = existing,
+            onDismiss = { readEdit = null },
+            onSave = { dates ->
+                readEdit = null
+                act("Opgeslagen.") {
+                    if (existing != null) settings.client().updateRead(existing.id, dates)
+                    else settings.client().addRead(id, dates)
+                }
+            },
+            onDelete = existing?.let { read ->
+                {
+                    readEdit = null
+                    act("Verwijderd.") { settings.client().deleteRead(read.id) }
+                }
+            },
+        )
     }
 }
 
@@ -148,9 +222,61 @@ private fun Header(book: Book) {
             listOfNotNull(book.isbn, book.pages?.let { "$it pagina's" }, book.format)
                 .takeIf { it.isNotEmpty() }
                 ?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall) }
+            if (book.status == "reading") ProgressLine(book)
         }
     }
     book.review?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+}
+
+@Composable
+fun ProgressLine(book: Book) {
+    val percent = book.progressPercent ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
+        val pages = book.pages
+        val page = book.progressPage
+        Text(
+            if (page != null && pages != null) "p. $page van $pages · $percent%" else "$percent%",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun ProgressCard(book: Book, busy: Boolean, onSave: (ProgressRequest) -> Unit) {
+    val pages = book.pages
+    var page by rememberSaveable(book.id) { mutableStateOf(book.progressPage?.toString().orEmpty()) }
+    var percent by rememberSaveable(book.id) { mutableFloatStateOf((book.progressPercent ?: 0).toFloat()) }
+    var toot by rememberSaveable { mutableStateOf(false) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Hoe ver ben je?", style = MaterialTheme.typography.titleMedium)
+            if (pages != null) {
+                OutlinedTextField(
+                    value = page,
+                    onValueChange = { page = it.filter(Char::isDigit).take(6) },
+                    label = { Text("Op pagina (van $pages)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text("${percent.toInt()}% gelezen")
+                Slider(value = percent, onValueChange = { percent = it }, valueRange = 0f..100f, steps = 19)
+            }
+            CheckRow("Post naar Mastodon", toot) { toot = it }
+            Button(
+                enabled = !busy && (pages == null || page.isNotEmpty()),
+                onClick = {
+                    onSave(
+                        if (pages != null) ProgressRequest(page = page.toIntOrNull(), toot = toot)
+                        else ProgressRequest(percent = percent.toInt(), toot = toot)
+                    )
+                },
+            ) { Text("Bijwerken") }
+        }
+    }
 }
 
 @Composable
@@ -208,24 +334,66 @@ private fun FinishCard(book: Book, busy: Boolean, postByDefault: Boolean, onFini
 }
 
 @Composable
-private fun History(book: Book) {
-    val uriHandler = LocalUriHandler.current
-    if (book.reads.isNotEmpty()) {
-        Text("Leesmomenten", style = MaterialTheme.typography.titleMedium)
-        book.reads.forEach { read ->
-            Text("${read.started ?: "—"}  →  ${read.finished ?: "…"}")
-        }
+private fun Reads(book: Book, onEdit: (Read) -> Unit, onAdd: () -> Unit) {
+    Text("Leesmomenten", style = MaterialTheme.typography.titleMedium)
+    book.reads.forEach { read ->
+        Text(
+            "${read.started ?: "—"}  →  ${read.finished ?: "…"}",
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onEdit(read) }
+                .padding(vertical = 8.dp),
+        )
     }
-    if (book.posts.isNotEmpty()) {
-        Text("Op Mastodon", style = MaterialTheme.typography.titleMedium)
-        book.posts.forEach { post ->
-            val label = "${post.createdAt} — ${if (post.kind == "finished") "uitgelezen" else "begonnen"}"
-            val url = post.url
-            if (url != null && url.startsWith("https://")) {
-                TextButton(onClick = { uriHandler.openUri(url) }) { Text(label) }
-            } else {
-                Text(label)
-            }
+    OutlinedButton(onClick = onAdd) { Text("Leesmoment toevoegen") }
+}
+
+@Composable
+private fun Posts(book: Book) {
+    if (book.posts.isEmpty()) return
+    val uriHandler = LocalUriHandler.current
+    Text("Op Mastodon", style = MaterialTheme.typography.titleMedium)
+    book.posts.forEach { post ->
+        val kind = when (post.kind) {
+            "finished" -> "uitgelezen"
+            "progress" -> "voortgang"
+            else -> "begonnen"
+        }
+        val label = "${post.createdAt} — $kind"
+        val url = post.url
+        if (url != null && url.startsWith("https://")) {
+            TextButton(onClick = { uriHandler.openUri(url) }) { Text(label) }
+        } else {
+            Text(label)
         }
     }
 }
+
+/** Edit or add a read. Dates are typed as JJJJ-MM-DD; empty means unknown. */
+@Composable
+private fun ReadDialog(read: Read?, onDismiss: () -> Unit, onSave: (ReadDates) -> Unit, onDelete: (() -> Unit)?) {
+    var started by rememberSaveable { mutableStateOf(read?.started.orEmpty()) }
+    var finished by rememberSaveable { mutableStateOf(read?.finished.orEmpty()) }
+    val valid = listOf(started, finished).all { it.isEmpty() || isDate(it) } && (started.isNotEmpty() || finished.isNotEmpty())
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (read == null) "Leesmoment toevoegen" else "Leesmoment") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(started, { started = it.trim() }, label = { Text("Begonnen (JJJJ-MM-DD)") }, singleLine = true)
+                OutlinedTextField(finished, { finished = it.trim() }, label = { Text("Uitgelezen (JJJJ-MM-DD)") }, singleLine = true)
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text("Dit leesmoment verwijderen", color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = {
+                onSave(ReadDates(started.ifEmpty { null }, finished.ifEmpty { null }))
+            }) { Text("Opslaan") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuleren") } },
+    )
+}
+
+private fun isDate(value: String): Boolean = runCatching { LocalDate.parse(value) }.isSuccess

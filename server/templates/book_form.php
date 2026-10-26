@@ -23,6 +23,14 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
 </section>
 <?php endif ?>
 
+<?php if (!empty($duplicate)): ?>
+<div class="flash error">
+  Dit boek lijkt al in je bibliotheek te staan:
+  <a href="<?= $v->url('/books/' . $duplicate['id']) ?>"><?= $v->e($duplicate['title']) ?></a><?= $duplicate['author'] !== '' ? ' — ' . $v->e($duplicate['author']) : '' ?>.
+  Vink hieronder “Toch toevoegen” aan als je het nog een keer wilt toevoegen.
+</div>
+<?php endif ?>
+
 <section class="card">
   <h2><?= $edit ? 'Boek bewerken' : 'Boek toevoegen' ?></h2>
   <form method="post" action="<?= $v->url($edit ? "/books/{$id}/edit" : '/books/add') ?>" class="grid">
@@ -54,6 +62,9 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
     <?php endif ?>
     <label class="wide">Recensie <textarea name="review" rows="5"><?= $val('review') ?></textarea></label>
     <label class="check"><input type="checkbox" name="owned" <?= $owned ? 'checked' : '' ?>> In bezit</label>
+    <?php if (!empty($duplicate)): ?>
+      <label class="check"><input type="checkbox" name="allow_duplicate"> Toch toevoegen</label>
+    <?php endif ?>
     <?php if (!$edit): ?>
       <label class="check"><input type="checkbox" name="toot" <?= $postByDefault ? 'checked' : '' ?>> Post naar Mastodon (bij “Aan het lezen” of “Gelezen”)</label>
     <?php endif ?>

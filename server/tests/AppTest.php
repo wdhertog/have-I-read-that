@@ -41,7 +41,7 @@ final class AppTest extends TestCase
             self::markTestSkipped('No test database: ' . $e->getMessage());
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['posts', '`reads`', 'books', 'api_tokens', 'login_attempts', 'schema_migrations'] as $table) {
+        foreach (['posts', '`reads`', 'books', 'api_tokens', 'login_attempts', 'goals', 'schema_migrations'] as $table) {
             $this->db->exec("DROP TABLE IF EXISTS {$table}");
         }
         $this->db->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -85,7 +85,7 @@ final class AppTest extends TestCase
         Database::migrateIfNeeded($this->db, dirname(__DIR__) . '/migrations');
 
         self::assertSame(['Bestaand', 'ebook'], $this->db->query('SELECT title, format FROM books')->fetch(PDO::FETCH_NUM));
-        self::assertSame(3, (int) $this->db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn());
+        self::assertSame(count(glob(dirname(__DIR__) . '/migrations/*.sql')), (int) $this->db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn());
         self::assertSame(0, (int) $this->db->query('SELECT COUNT(*) FROM login_attempts')->fetchColumn());
     }
 
@@ -276,5 +276,124 @@ final class AppTest extends TestCase
         self::assertNull($body['book']['format']);
         [$status] = $this->api('POST', "/api/books/{$id}/finish", ['review' => ['a' => 1], 'date' => ['x']], $token);
         self::assertSame(200, $status);
+    }
+
+    // --- stap 2: snelle winst ------------------------------------------------
+
+    public function testReadingProgress(): void
+    {
+        $token = $this->app->auth->createToken('t');
+        [, $body] = $this->api('POST', '/api/books', ['title' => 'Tirza', 'author' => 'Arnon Grunberg', 'pages' => 400, 'status' => 'reading'], $token);
+        $id = $body['book']['id'];
+
+        [$status, $body] = $this->api('POST', "/api/books/{$id}/progress", ['page' => 100], $token);
+        self::assertSame(200, $status);
+        self::assertSame([100, 25], [$body['book']['progress_page'], $body['book']['progress_percent']]);
+        self::assertStringContainsString('25% gelezen van Tirza', $body['book']['toot_preview']['progress']);
+
+        [, $body] = $this->api('POST', "/api/books/{$id}/progress", ['percent' => '50'], $token);
+        self::assertSame([200, 50], [$body['book']['progress_page'], $body['book']['progress_percent']]);
+        [$status] = $this->api('POST', "/api/books/{$id}/progress", ['page' => 401], $token);
+        self::assertSame(422, $status);
+        [$status] = $this->api('POST', "/api/books/{$id}/progress", ['page' => 'veel'], $token);
+        self::assertSame(422, $status);
+
+        [, $body] = $this->api('GET', '/api/books?status=reading', null, $token);
+        self::assertSame(50, $body['books'][0]['progress_percent']);
+
+        // Finishing closes the read; a new read starts without progress.
+        $this->api('POST', "/api/books/{$id}/finish", [], $token);
+        [, $body] = $this->api('POST', "/api/books/{$id}/start", [], $token);
+        self::assertNull($body['book']['progress_percent']);
+
+        $this->login();
+        $this->web('POST', "/books/{$id}/progress", ['page' => '300']);
+        self::assertStringContainsString('p. 300 van 400 · 75%', $this->web('GET', "/books/{$id}")->body);
+    }
+
+    public function testReadingGoal(): void
+    {
+        $this->login();
+        $year = (int) date('Y');
+        $this->web('POST', '/stats/goal', ['year' => (string) $year, 'books' => '2']);
+        $this->web('POST', '/books/add', ['title' => 'Een', 'status' => 'read']);
+        self::assertStringContainsString('1 van 2 boeken', $this->web('GET', '/stats')->body);
+        self::assertStringContainsString('1 van 2 boeken', $this->app->handle(new Request('GET', '/'))->body);
+
+        [, $me] = $this->api('GET', '/api/me');
+        self::assertSame(['year' => $year, 'goal' => 2, 'read' => 1], $me['goal']);
+
+        $this->web('POST', '/stats/goal', ['year' => (string) $year, 'books' => '']);
+        self::assertNull($this->app->books->goal($year));
+        self::assertSame(302, $this->web('POST', '/stats/goal', ['year' => 'x', 'books' => '3'])->status);
+    }
+
+    public function testExportRoundTrip(): void
+    {
+        $this->login();
+        $file = tempnam(sys_get_temp_dir(), 'sg');
+        file_put_contents($file, Fixtures::STORYGRAPH_CSV);
+        $this->web('POST', '/import', [], ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK]]);
+        $this->web('POST', '/books/add', ['title' => '=HYPERLINK("x")', 'author' => '+31 auteur', 'status' => 'to-read']);
+
+        $csv = $this->web('GET', '/export.csv');
+        self::assertStringContainsString('attachment;', $csv->headers['Content-Disposition']);
+        self::assertStringContainsString("\"'=HYPERLINK(\"\"x\"\")\"", $csv->body);
+        $json = json_decode($this->web('GET', '/export.json')->body, true);
+        self::assertCount(5, $json['books']);
+
+        // Importing the export into an empty library gives the same books and reads back.
+        $before = $this->db->query('SELECT title, author, status, rating, format FROM books ORDER BY title')->fetchAll();
+        $reads = $this->db->query('SELECT b.title, r.started, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id ORDER BY 1, 2, 3')->fetchAll();
+        $this->db->exec('DELETE FROM books');
+        file_put_contents($file, $csv->body);
+        $this->web('POST', '/import', [], ['file' => ['tmp_name' => $file, 'error' => UPLOAD_ERR_OK]]);
+        unlink($file);
+        self::assertSame($before, $this->db->query('SELECT title, author, status, rating, format FROM books ORDER BY title')->fetchAll());
+        self::assertSame($reads, $this->db->query('SELECT b.title, r.started, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id ORDER BY 1, 2, 3')->fetchAll());
+    }
+
+    public function testDuplicatesAreCaught(): void
+    {
+        $token = $this->app->auth->createToken('t');
+        $this->api('POST', '/api/books', ['title' => 'De Avonden', 'author' => 'Gerard Reve'], $token);
+
+        [$status, $body] = $this->api('POST', '/api/books', ['title' => 'de  avonden ', 'author' => 'gerard reve'], $token);
+        self::assertSame(409, $status);
+        self::assertSame('De Avonden', $body['existing']['title']);
+        [$status] = $this->api('POST', '/api/books', ['title' => 'De avonden', 'author' => 'Gerard Reve', 'allow_duplicate' => true], $token);
+        self::assertSame(201, $status);
+
+        $this->login();
+        $response = $this->web('POST', '/books/add', ['title' => 'De avonden', 'author' => 'Gerard Reve']);
+        self::assertSame(409, $response->status);
+        self::assertStringContainsString('Toch toevoegen', $response->body);
+        self::assertSame(302, $this->web('POST', '/books/add', ['title' => 'De avonden', 'author' => 'Gerard Reve', 'allow_duplicate' => 'on'])->status);
+    }
+
+    public function testEditingFromTheApp(): void
+    {
+        $token = $this->app->auth->createToken('t');
+        [, $body] = $this->api('POST', '/api/books', ['title' => 'Tikfout', 'status' => 'read'], $token);
+        $id = $body['book']['id'];
+        $readId = $body['book']['reads'][0]['id'];
+
+        [$status, $body] = $this->api('POST', "/api/books/{$id}", ['title' => 'Goed', 'author' => 'A', 'status' => 'read', 'format' => 'ebook', 'rating' => 4], $token);
+        self::assertSame(200, $status);
+        self::assertSame(['Goed', 'ebook', 4.0], [$body['book']['title'], $body['book']['format'], (float) $body['book']['rating']]);
+
+        [, $body] = $this->api('POST', "/api/reads/{$readId}", ['started' => '2024-01-01', 'finished' => '2024-02-01'], $token);
+        self::assertSame('2024-02-01', $body['book']['last_finished']);
+        [, $body] = $this->api('POST', "/api/books/{$id}/reads", ['finished' => '2025-03-03'], $token);
+        self::assertCount(2, $body['book']['reads']);
+        [$status] = $this->api('POST', "/api/books/{$id}/reads", ['started' => 'gisteren'], $token);
+        self::assertSame(422, $status);
+        [, $body] = $this->api('POST', "/api/reads/{$readId}/delete", null, $token);
+        self::assertCount(1, $body['book']['reads']);
+
+        [$status] = $this->api('POST', "/api/books/{$id}/delete", null, $token);
+        self::assertSame(200, $status);
+        [$status] = $this->api('GET', "/api/books/{$id}", null, $token);
+        self::assertSame(404, $status);
     }
 }

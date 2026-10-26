@@ -31,6 +31,8 @@ final class Api
                 'post_by_default' => $this->app->config->bool('MASTODON_POST_BY_DEFAULT', true),
             ],
             'statuses' => Books::STATUSES,
+            'formats' => Books::FORMATS,
+            'goal' => $this->app->books->goalProgress((int) date('Y')),
         ]);
     }
 
@@ -55,12 +57,113 @@ final class Api
         } catch (InvalidArgumentException $e) {
             return Response::json(['error' => $e->getMessage()], 422);
         }
+        $duplicate = $this->app->books->findDuplicate($data['title'], $data['author'], $data['isbn']);
+        if ($duplicate && empty($input['allow_duplicate'])) {
+            return Response::json([
+                'error' => "“{$duplicate['title']}” staat al in je bibliotheek.",
+                'existing' => $this->present($duplicate),
+            ], 409);
+        }
         $id = $this->app->books->create($data, Books::validDate($input['started'] ?? null), Books::validDate($input['finished'] ?? null));
         $toot = null;
         if (!empty($input['toot']) && in_array($data['status'], ['reading', 'read'], true)) {
             $toot = $this->postToot($id, $data['status'] === 'reading' ? 'started' : 'finished');
         }
         return Response::json(['book' => $this->detail($this->app->books->find($id)), 'toot' => $toot], 201);
+    }
+
+    /** Edit a book's details (not its reads or status history). */
+    public function update(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->notFound();
+        }
+        try {
+            $this->app->books->update($id, Books::validate($request->json()));
+        } catch (InvalidArgumentException $e) {
+            return Response::json(['error' => $e->getMessage()], 422);
+        }
+        return Response::json(['book' => $this->detail($this->app->books->find($id))]);
+    }
+
+    public function delete(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->notFound();
+        }
+        $this->app->books->delete($id);
+        return Response::json(['deleted' => true]);
+    }
+
+    public function progress(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->notFound();
+        }
+        $input = $request->json();
+        try {
+            $this->app->books->setProgress($id, self::optionalInt($input['page'] ?? null), self::optionalInt($input['percent'] ?? null));
+        } catch (InvalidArgumentException $e) {
+            return Response::json(['error' => $e->getMessage()], 422);
+        }
+        $toot = !empty($input['toot']) ? $this->postToot($id, 'progress') : null;
+        return Response::json(['book' => $this->detail($this->app->books->find($id)), 'toot' => $toot]);
+    }
+
+    public function addRead(Request $request, int $id): Response
+    {
+        if (!$this->app->books->find($id)) {
+            return $this->notFound();
+        }
+        [$started, $finished] = $this->readDates($request->json());
+        if (!$started && !$finished) {
+            return Response::json(['error' => 'Vul minstens één datum in (JJJJ-MM-DD).'], 422);
+        }
+        $this->app->books->addRead($id, $started, $finished);
+        return Response::json(['book' => $this->detail($this->app->books->find($id))], 201);
+    }
+
+    public function updateRead(Request $request, int $id): Response
+    {
+        [$started, $finished] = $this->readDates($request->json());
+        if (!$started && !$finished) {
+            return Response::json(['error' => 'Vul minstens één datum in (JJJJ-MM-DD).'], 422);
+        }
+        $bookId = $this->app->books->updateRead($id, $started, $finished);
+        return $bookId ? Response::json(['book' => $this->detail($this->app->books->find($bookId))]) : $this->notFound();
+    }
+
+    public function deleteRead(Request $request, int $id): Response
+    {
+        $bookId = $this->app->books->deleteRead($id);
+        return $bookId ? Response::json(['book' => $this->detail($this->app->books->find($bookId))]) : $this->notFound();
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @return array{?string, ?string}
+     */
+    private function readDates(array $input): array
+    {
+        return [Books::validDate($input['started'] ?? null), Books::validDate($input['finished'] ?? null)];
+    }
+
+    /** A whole number from JSON (number or numeric string), or null. */
+    private static function optionalInt(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_float($value) && floor($value) === $value) {
+            return (int) $value;
+        }
+        if (is_string($value) && preg_match('/^\s*-?\d{1,9}\s*$/', $value)) {
+            return (int) $value;
+        }
+        if ($value === null || $value === '') {
+            return null;
+        }
+        throw new InvalidArgumentException('Vul een heel getal in.');
     }
 
     public function start(Request $request, int $id): Response
@@ -102,7 +205,7 @@ final class Api
             return $this->notFound();
         }
         $input = $request->json();
-        $kind = ($input['kind'] ?? '') === 'started' ? 'started' : 'finished';
+        $kind = in_array($input['kind'] ?? null, ['started', 'progress'], true) ? $input['kind'] : 'finished';
         try {
             $text = Books::text($input['text'] ?? null, 5000);
         } catch (InvalidArgumentException $e) {
@@ -162,6 +265,8 @@ final class Api
             $out[$key] = $book[$key] ?? null;
         }
         $out['last_finished'] = $book['last_finished'] ?? null;
+        $out['progress_page'] = $book['progress_page'] ?? null;
+        $out['progress_percent'] = $book['progress_percent'] ?? null;
         $out['cover_url'] = OpenLibrary::coverUrl($book['isbn'] ?? null);
         return $out;
     }
@@ -180,6 +285,7 @@ final class Api
             'toot_preview' => [
                 'started' => $this->app->tooter->compose($book, 'started'),
                 'finished' => $this->app->tooter->compose($book, 'finished'),
+                'progress' => $this->app->tooter->compose($book, 'progress'),
             ],
         ];
     }
