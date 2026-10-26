@@ -13,13 +13,31 @@ android {
         applicationId = "app.haveireadthat"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // CI passes the run number, so every build can be installed over the previous one.
+        val build = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "1.0.$build"
+    }
+
+    // The release key comes from the environment (GitHub secrets), never from the repository.
+    val keystore = System.getenv("SIGNING_KEYSTORE_PATH")
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
