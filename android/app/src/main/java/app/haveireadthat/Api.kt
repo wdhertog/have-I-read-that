@@ -120,6 +120,9 @@ data class LookupResult(
     val isbn: String = "",
     val pages: Int? = null,
     val year: Int? = null,
+    val publisher: String? = null,
+    val series: String? = null,
+    @SerialName("series_number") val seriesNumber: Double? = null,
 )
 
 @Serializable

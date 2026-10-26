@@ -10,10 +10,13 @@ namespace App;
  */
 final class Catalog
 {
-    public const FIELDS = ['title', 'author', 'pages', 'publisher', 'year', 'language'];
+    public const FIELDS = ['title', 'author', 'pages', 'publisher', 'year', 'language', 'series', 'series_number'];
+
+    public const DEFAULT_METADATA_SOURCES = 'kb,openlibrary,google,wikidata';
 
     private Kb $kb;
     private GoogleBooks $google;
+    private Wikidata $wikidata;
 
     /** @param (callable(string): ?string)|null $get HTTPS GET; injectable for tests. */
     public function __construct(private Config $config, ?callable $get = null)
@@ -21,12 +24,13 @@ final class Catalog
         $get = \Closure::fromCallable($get ?? [Http::class, 'get']);
         $this->kb = new Kb($get);
         $this->google = new GoogleBooks($get, $config->get('GOOGLE_BOOKS_API_KEY'));
+        $this->wikidata = new Wikidata($get);
     }
 
     /** @return list<string> */
     public function metadataSources(): array
     {
-        return self::list($this->config->get('METADATA_SOURCES', 'kb,openlibrary,google'));
+        return self::list($this->config->get('METADATA_SOURCES', self::DEFAULT_METADATA_SOURCES));
     }
 
     /** @return list<string> */
@@ -50,6 +54,7 @@ final class Catalog
                     'kb' => $this->kb->byIsbn($isbn),
                     'openlibrary' => OpenLibrary::byIsbn($isbn),
                     'google' => $this->google->byIsbn($isbn),
+                    'wikidata' => $this->wikidata->byIsbn($isbn),
                     default => null,
                 };
             } catch (\RuntimeException) {

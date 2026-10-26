@@ -14,6 +14,7 @@ use App\Kb;
 use App\Language;
 use App\Request;
 use App\Response;
+use App\Wikidata;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -40,6 +41,13 @@ final class LoansAndCatalogTest extends TestCase
 XML;
 
     private const KB_EMPTY = '<srw:searchRetrieveResponse xmlns:srw="http://www.loc.gov/zing/srw/"><srw:numberOfRecords>0</srw:numberOfRecords></srw:searchRetrieveResponse>';
+
+    /** The work is in two series: the numbered one wins. */
+    private const WIKIDATA_ANSWER = '{"head":{"vars":["seriesLabel","ordinal","direct"]},"results":{"bindings":['
+        . '{"seriesLabel":{"type":"literal","value":"Q98765"},"direct":{"type":"literal","value":"1"}},'
+        . '{"seriesLabel":{"type":"literal","value":"Ooievaar pocket"},"direct":{"type":"literal","value":"1"}},'
+        . '{"seriesLabel":{"type":"literal","value":"Winterverhalen"},"ordinal":{"type":"literal","value":"2"},"direct":{"type":"literal","value":"0"}}'
+        . ']}}';
 
     private PDO $db;
     private App $app;
@@ -194,6 +202,9 @@ XML;
             if (str_starts_with($url, 'https://books.google.com/books/content')) {
                 return $cover;
             }
+            if (str_starts_with($url, 'https://query.wikidata.org/sparql?format=json&query=')) {
+                return self::WIKIDATA_ANSWER;
+            }
             return null;
         };
     }
@@ -241,6 +252,49 @@ XML;
         self::assertSame(2, $calls, 'a new source gets a chance');
         array_map('unlink', glob("{$dir}/*"));
         rmdir($dir);
+    }
+
+    public function testWikidataIsAskedForEveryHyphenation(): void
+    {
+        $spellings = Wikidata::spellings('9789023417069');
+        self::assertCount(58, $spellings, '28 hyphenations each of the ISBN-13 and ISBN-10, plus both bare');
+        self::assertContains('978-90-234-1706-9', $spellings);
+        self::assertContains('90-234-1706-2', $spellings);
+        self::assertContains('9023417062', $spellings);
+        self::assertCount(29, Wikidata::spellings('9791032305690'), 'no ISBN-10 for 979');
+        $query = Wikidata::query('9789023417069');
+        self::assertStringContainsString('"978-90-234-1706-9"', $query);
+        self::assertStringContainsString('wdt:P629', $query, 'translations look at the original work');
+    }
+
+    public function testWikidataAnswerIsRead(): void
+    {
+        self::assertSame(['series' => 'Winterverhalen', 'series_number' => 2.0], Wikidata::parse(self::WIKIDATA_ANSWER));
+        self::assertNull(Wikidata::parse('{"results":{"bindings":[]}}'));
+        self::assertNull(Wikidata::parse('<html>Too many requests'));
+        $odd = '{"results":{"bindings":[{"seriesLabel":{"value":"Schijfwereld"},"ordinal":{"value":"3a"}}]}}';
+        self::assertSame(['series' => 'Schijfwereld', 'series_number' => null], Wikidata::parse($odd));
+    }
+
+    public function testSeriesIsFilledInFromWikidata(): void
+    {
+        $config = $this->config(['METADATA_SOURCES' => 'kb,wikidata']);
+        $asked = [];
+        $info = (new Catalog($config, $this->fakeGet($asked)))->lookup('9789023417069');
+        self::assertSame(['kb', 'wikidata'], $info['sources']);
+        self::assertSame(['Winterverhalen', 2.0], [$info['series'], $info['series_number']]);
+
+        $fresh = $this->book('De avonden', ['isbn' => '9789023417069']);
+        self::assertContains('serie', $this->app->books->fillFromCatalog($this->app->books->find($fresh), $info));
+        $book = $this->app->books->find($fresh);
+        self::assertSame(['Winterverhalen', 2.0], [$book['series'], (float) $book['series_number']]);
+
+        // A series of your own stays, and no number from another series is added to it.
+        $own = $this->book('De avonden', ['isbn' => '9789023417069', 'series' => 'Mijn reeks', 'allow_duplicate' => 1]);
+        $filled = $this->app->books->fillFromCatalog($this->app->books->find($own), $info);
+        self::assertNotContains('serie', $filled);
+        self::assertNotContains('deel', $filled);
+        self::assertSame(['Mijn reeks', null], [$this->app->books->find($own)['series'], $this->app->books->find($own)['series_number']]);
     }
 
     public function testFillingInNeverOverwrites(): void

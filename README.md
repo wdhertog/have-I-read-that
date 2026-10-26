@@ -23,7 +23,7 @@ android/   Kotlin/Jetpack Compose-app die met de API praat
 - Export naar CSV (StoryGraph-formaat, weer te importeren) en JSON
 - Waarschuwing als je een boek toevoegt dat er al in staat
 - Uitlenen bijhouden: aan wie, sinds wanneer, met een overzicht per persoon (alleen voor jou)
-- Boekgegevens van de KB (Koninklijke Bibliotheek), Open Library en Google Books; covers van Open Library en Google Books
+- Boekgegevens van de KB (Koninklijke Bibliotheek), Open Library, Google Books en Wikidata (series); covers van Open Library en Google Books
 - Notities en citaten per boek (privé, of openbaar op de boekpagina)
 - Planken (je tags; die van StoryGraph komen er vanzelf in) en series met deelnummers
 - Toots met de cover als afbeelding (met alt-tekst), en een jaaroverzicht-toot met een collage van covers
@@ -178,6 +178,8 @@ gevraagd; elke bron vult aan wat de vorige mist:
 - **Open Library**: gegevens en covers.
 - **Google Books**: gegevens en covers, ook van veel Nederlandse boeken. Werkt zonder
   sleutel; bij "te veel verzoeken" kun je een gratis `GOOGLE_BOOKS_API_KEY` instellen.
+- **Wikidata**: alleen de serie en het deel (de verhaalreeks, niet de reeks van de
+  uitgever). Bij een vertaling wordt ook naar het oorspronkelijke werk gekeken.
 
 Volgorde en keuze stel je in met `METADATA_SOURCES` en `COVER_SOURCES`. Onder
 *Import/export → Gegevens aanvullen* zoek je voor al je boeken met een ISBN de lege
