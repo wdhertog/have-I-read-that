@@ -19,3 +19,12 @@ document.addEventListener('error', (event) => {
 document.querySelectorAll('[data-width]').forEach((el) => {
   el.style.width = el.dataset.width + '%';
 });
+
+// QR code for setting up two-step verification (library loaded only on that page).
+const qrTarget = document.getElementById('totp-qr');
+if (qrTarget && window.qrcode) {
+  const qr = window.qrcode(0, 'M');
+  qr.addData(qrTarget.dataset.uri);
+  qr.make();
+  qrTarget.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 4, scalable: true });
+}

@@ -15,13 +15,13 @@ final class YearReview
     /** Stop fetching covers after this many seconds; the collage uses what it has. */
     private const FETCH_BUDGET = 25;
 
-    /** @var \Closure(?string, string): ?array{bytes: string, mime: string} */
+    /** @var \Closure(array<string, mixed>): ?array{bytes: string, mime: string} */
     private \Closure $coverFetcher;
 
-    /** @param (callable(?string, string): ?array{bytes: string, mime: string})|null $coverFetcher */
-    public function __construct(private Books $books, private Mastodon $mastodon, ?callable $coverFetcher = null)
+    /** @param callable(array<string, mixed>): ?array{bytes: string, mime: string} $coverFetcher Usually Covers::image. */
+    public function __construct(private Books $books, private Mastodon $mastodon, callable $coverFetcher)
     {
-        $this->coverFetcher = \Closure::fromCallable($coverFetcher ?? [OpenLibrary::class, 'fetchCover']);
+        $this->coverFetcher = \Closure::fromCallable($coverFetcher);
     }
 
     /**
@@ -78,7 +78,11 @@ final class YearReview
             if (count($covers) >= self::MAX_COVERS || microtime(true) > $deadline) {
                 break;
             }
-            $cover = $book['isbn'] ? ($this->coverFetcher)($book['isbn'], 'M') : null;
+            try {
+                $cover = ($this->coverFetcher)($book);
+            } catch (\RuntimeException) {
+                $cover = null;
+            }
             $image = $cover ? @imagecreatefromstring($cover['bytes']) : false;
             if ($image !== false) {
                 $covers[] = ['image' => $image, 'book' => $book];

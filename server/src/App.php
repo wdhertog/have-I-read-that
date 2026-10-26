@@ -20,6 +20,9 @@ final class App
     public readonly Mastodon $mastodon;
     public readonly View $view;
     public readonly YearReview $yearReview;
+    public readonly Covers $covers;
+    /** The request being handled, for absolute URLs. */
+    private ?Request $request = null;
     private Router $router;
 
     public function __construct(public readonly Config $config, PDO $db, public readonly string $basePath = '')
@@ -27,9 +30,10 @@ final class App
         $this->books = new Books($db);
         $this->auth = new Auth($config, $db);
         $this->mastodon = Mastodon::fromConfig($config);
-        $this->tooter = new Tooter($this->books, $this->mastodon, $config);
-        $this->yearReview = new YearReview($this->books, $this->mastodon);
-        $this->view = new View(dirname(__DIR__) . '/templates', $basePath);
+        $this->covers = new Covers($config->get('COVERS_DIR', dirname(__DIR__) . '/var/covers'));
+        $this->tooter = new Tooter($this->books, $this->mastodon, $config, [$this->covers, 'image']);
+        $this->yearReview = new YearReview($this->books, $this->mastodon, [$this->covers, 'image']);
+        $this->view = new View(dirname(__DIR__) . '/templates', $basePath, fn (array $book) => $this->coverUrl($book));
         $this->router = new Router();
 
         $web = new Web($this);
@@ -42,6 +46,8 @@ final class App
             : Response::redirect($this->url('/books')));
         $r->add('GET', '/login', [$web, 'loginForm']);
         $r->add('POST', '/login', [$web, 'login']);
+        $r->add('GET', '/login/code', [$web, 'codeForm']);
+        $r->add('POST', '/login/code', [$web, 'code']);
         $r->add('POST', '/logout', [$web, 'logout']);
         $r->add('GET', '/books', [$web, 'index']);
         $r->add('GET', '/books/add', [$web, 'addForm']);
@@ -62,6 +68,7 @@ final class App
         $r->add('GET', '/stats/collage/{year}', [$web, 'collage']);
         $r->add('GET', '/boek/{id}', [$shelf, 'book']);
         $r->add('GET', '/feed.xml', [$shelf, 'feed']);
+        $r->add('GET', '/cover/{id}', [$shelf, 'cover']);
         $r->add('GET', '/export.csv', [$web, 'exportCsv']);
         $r->add('GET', '/export.json', [$web, 'exportJson']);
         $r->add('GET', '/import', [$web, 'importForm']);
@@ -70,6 +77,10 @@ final class App
         $r->add('POST', '/settings/test', [$web, 'testMastodon']);
         $r->add('POST', '/settings/tokens', [$web, 'createToken']);
         $r->add('POST', '/settings/tokens/{id}/delete', [$web, 'deleteToken']);
+        $r->add('POST', '/settings/2fa/start', [$web, 'startTwoFactor']);
+        $r->add('POST', '/settings/2fa/enable', [$web, 'enableTwoFactor']);
+        $r->add('POST', '/settings/2fa/disable', [$web, 'disableTwoFactor']);
+        $r->add('GET', '/backup.sql', [$web, 'backup']);
 
         $r->add('GET', '/api/me', [$api, 'me']);
         $r->add('GET', '/api/books', [$api, 'index']);
@@ -91,7 +102,18 @@ final class App
     /** Pages anyone may open: the login form, and the public shelf, book pages and feed. */
     private static function isPublicPath(string $path): bool
     {
-        return in_array($path, ['/', '/login', '/feed.xml'], true) || preg_match('#^/boek/\d+$#', $path) === 1;
+        return in_array($path, ['/', '/login', '/login/code', '/feed.xml'], true)
+            || preg_match('#^/(boek|cover)/\d+$#', $path) === 1; // cover checks access itself
+    }
+
+    /** URL of a book's cover on this server, or null when it can't have one. */
+    public function coverUrl(array $book, bool $absolute = false): ?string
+    {
+        if (!$this->covers->mayHave($book)) {
+            return null;
+        }
+        $path = "/cover/{$book['id']}?v=" . rawurlencode($this->covers->version($book));
+        return $absolute && $this->request ? $this->absoluteUrl($this->request, $path) : $this->url($path);
     }
 
     /**
@@ -140,17 +162,18 @@ final class App
 
     public function handle(Request $request): Response
     {
+        $this->request = $request;
         $response = $this->dispatch($request);
         $headers = [
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
             'Referrer-Policy' => 'same-origin',
-            // Covers come from Open Library (which redirects to archive.org), the rest is our own.
-            'Content-Security-Policy' => "default-src 'self'; img-src 'self' https:; object-src 'none'; "
+            // Everything, covers included, comes from this server.
+            'Content-Security-Policy' => "default-src 'self'; object-src 'none'; "
                 . "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
         ];
         // Only the public pages may be cached; everything else can contain private data or tokens.
-        if (!self::isPublicPath($request->path) || $request->path === '/login' || $this->auth->loggedIn()) {
+        if (!self::isPublicPath($request->path) || str_starts_with($request->path, '/login') || $this->auth->loggedIn()) {
             $headers['Cache-Control'] = 'no-store';
         }
         if ($request->https) {
@@ -165,8 +188,12 @@ final class App
         $isApi = str_starts_with($request->path, '/api/');
         try {
             if ($isApi) {
-                if (!$this->auth->checkToken($request->header('authorization'))) {
+                $scope = $this->auth->checkToken($request->header('authorization'));
+                if ($scope === null) {
                     return Response::json(['error' => 'Ongeldig of ontbrekend token.'], 401);
+                }
+                if ($scope === 'read' && $request->method !== 'GET') {
+                    return Response::json(['error' => 'Dit token mag alleen lezen.'], 403);
                 }
             } elseif (!self::isPublicPath($request->path) && !$this->auth->loggedIn()) {
                 return $request->method === 'GET'

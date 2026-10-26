@@ -12,8 +12,13 @@ final class View
     /** @var array<string, mixed> */
     private array $globals = [];
 
-    public function __construct(private string $dir, private string $basePath)
+    /** @var \Closure(array<string, mixed>): ?string */
+    private \Closure $coverUrl;
+
+    /** @param callable(array<string, mixed>): ?string $coverUrl */
+    public function __construct(private string $dir, private string $basePath, callable $coverUrl)
     {
+        $this->coverUrl = \Closure::fromCallable($coverUrl);
     }
 
     public function share(string $key, mixed $value): void
@@ -64,9 +69,10 @@ final class View
         return Mastodon::formatRating($rating);
     }
 
-    public function cover(?string $isbn, string $size = 'M'): ?string
+    /** @param array<string, mixed> $book */
+    public function cover(array $book): ?string
     {
-        return OpenLibrary::coverUrl($isbn, $size);
+        return ($this->coverUrl)($book);
     }
 
     public function csrf(): string

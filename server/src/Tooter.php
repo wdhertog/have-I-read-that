@@ -9,17 +9,17 @@ namespace App;
  */
 final class Tooter
 {
-    /** @var \Closure(?string): ?array{bytes: string, mime: string} */
+    /** @var \Closure(array<string, mixed>): ?array{bytes: string, mime: string} */
     private \Closure $coverFetcher;
 
-    /** @param (callable(?string): ?array{bytes: string, mime: string})|null $coverFetcher For tests; defaults to Open Library. */
+    /** @param callable(array<string, mixed>): ?array{bytes: string, mime: string} $coverFetcher Usually Covers::image. */
     public function __construct(
         private Books $books,
         private Mastodon $mastodon,
         private Config $config,
-        ?callable $coverFetcher = null,
+        callable $coverFetcher,
     ) {
-        $this->coverFetcher = \Closure::fromCallable($coverFetcher ?? [OpenLibrary::class, 'fetchCover']);
+        $this->coverFetcher = \Closure::fromCallable($coverFetcher);
     }
 
     public function configured(): bool
@@ -70,10 +70,15 @@ final class Tooter
      */
     private function coverMedia(array $book): array
     {
-        if (!$this->config->bool('MASTODON_ATTACH_COVER', true) || empty($book['isbn'])) {
+        if (!$this->config->bool('MASTODON_ATTACH_COVER', true)) {
             return [];
         }
-        $cover = ($this->coverFetcher)($book['isbn']);
+        try {
+            $cover = ($this->coverFetcher)($book);
+        } catch (\RuntimeException $e) {
+            error_log('Cover unavailable: ' . $e->getMessage());
+            return [];
+        }
         if ($cover === null) {
             return [];
         }

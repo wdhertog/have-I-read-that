@@ -120,34 +120,131 @@ final class Auth
 
     // --- API tokens -----------------------------------------------------------
 
-    /** Create a token and return the plain value (shown once). */
-    public function createToken(string $name): string
+    /**
+     * Create a token and return the plain value (shown once). A "read" token can only
+     * look things up; a "full" one can also change books and post to Mastodon.
+     */
+    public function createToken(string $name, string $scope = 'full'): string
     {
         $token = 'hirt_' . bin2hex(random_bytes(24));
-        $this->db->prepare('INSERT INTO api_tokens (name, token_hash) VALUES (?, ?)')
-            ->execute([mb_substr(trim($name) ?: 'Android', 0, 100), hash('sha256', $token)]);
+        $this->db->prepare('INSERT INTO api_tokens (name, token_hash, scope) VALUES (?, ?, ?)')
+            ->execute([mb_substr(trim($name) ?: 'Android', 0, 100), hash('sha256', $token), $scope === 'read' ? 'read' : 'full']);
         return $token;
     }
 
-    public function checkToken(?string $header): bool
+    /** The token's scope ("full" or "read"), or null when it isn't valid. */
+    public function checkToken(?string $header): ?string
     {
         if (!$header || !preg_match('/^Bearer\s+(\S+)$/i', $header, $m)) {
-            return false;
+            return null;
         }
-        $stmt = $this->db->prepare('SELECT id FROM api_tokens WHERE token_hash = ?');
+        $stmt = $this->db->prepare('SELECT id, scope FROM api_tokens WHERE token_hash = ?');
         $stmt->execute([hash('sha256', $m[1])]);
-        $id = $stmt->fetchColumn();
-        if ($id === false) {
-            return false;
+        $token = $stmt->fetch();
+        if (!$token) {
+            return null;
         }
-        $this->db->prepare('UPDATE api_tokens SET last_used_at = NOW() WHERE id = ?')->execute([$id]);
-        return true;
+        $this->db->prepare('UPDATE api_tokens SET last_used_at = NOW() WHERE id = ?')->execute([$token['id']]);
+        return $token['scope'] === 'read' ? 'read' : 'full';
     }
 
     /** @return list<array<string, mixed>> */
     public function tokens(): array
     {
-        return $this->db->query('SELECT id, name, created_at, last_used_at FROM api_tokens ORDER BY id DESC')->fetchAll();
+        return $this->db->query('SELECT id, name, scope, created_at, last_used_at FROM api_tokens ORDER BY id DESC')->fetchAll();
+    }
+
+    // --- two-step verification ------------------------------------------------
+
+    private const PENDING_SECONDS = 300;
+
+    public function twoFactorEnabled(): bool
+    {
+        return $this->setting('totp_secret') !== null;
+    }
+
+    /** Password was right; the code is still to come. Nothing is unlocked yet. */
+    public function beginSecondFactor(): void
+    {
+        self::regenerate();
+        $_SESSION = [
+            'pending_2fa' => $this->passwordFingerprint(),
+            'pending_until' => time() + self::PENDING_SECONDS,
+            'csrf' => bin2hex(random_bytes(32)),
+        ];
+    }
+
+    public function secondFactorPending(): bool
+    {
+        $pending = $_SESSION['pending_2fa'] ?? null;
+        return is_string($pending) && hash_equals($this->passwordFingerprint(), $pending)
+            && ($_SESSION['pending_until'] ?? 0) >= time();
+    }
+
+    /** Check a code from the authenticator app, or a recovery code (used up once used). */
+    public function verifySecondFactor(string $code): bool
+    {
+        $secret = $this->setting('totp_secret');
+        if ($secret === null) {
+            return false;
+        }
+        $step = Totp::verify($secret, $code, (int) $this->setting('totp_last_step'));
+        if ($step !== null) {
+            $this->saveSetting('totp_last_step', (string) $step);
+            return true;
+        }
+        $hashes = json_decode((string) $this->setting('recovery_codes'), true) ?: [];
+        $hash = hash('sha256', strtolower(preg_replace('/[^A-Za-z0-9]/', '', $code)));
+        $match = array_search($hash, $hashes, true);
+        if ($match === false) {
+            return false;
+        }
+        unset($hashes[$match]);
+        $this->saveSetting('recovery_codes', json_encode(array_values($hashes)));
+        return true;
+    }
+
+    public function recoveryCodesLeft(): int
+    {
+        return count(json_decode((string) $this->setting('recovery_codes'), true) ?: []);
+    }
+
+    /**
+     * Turn two-step verification on and return 8 recovery codes to show once.
+     *
+     * @return list<string>
+     */
+    public function enableTwoFactor(string $secret): array
+    {
+        $codes = [];
+        for ($i = 0; $i < 8; $i++) {
+            $raw = strtolower(Totp::base32Encode(random_bytes(7))); // 56 bits, 12 characters
+            $codes[] = substr($raw, 0, 4) . '-' . substr($raw, 4, 4) . '-' . substr($raw, 8, 4);
+        }
+        $hashes = array_map(static fn (string $c) => hash('sha256', str_replace('-', '', $c)), $codes);
+        $this->saveSetting('totp_secret', $secret);
+        $this->saveSetting('totp_last_step', '0');
+        $this->saveSetting('recovery_codes', (string) json_encode($hashes));
+        return $codes;
+    }
+
+    public function disableTwoFactor(): void
+    {
+        $this->db->exec("DELETE FROM settings WHERE name IN ('totp_secret', 'totp_last_step', 'recovery_codes')");
+    }
+
+    private function setting(string $name): ?string
+    {
+        $stmt = $this->db->prepare('SELECT value FROM settings WHERE name = ?');
+        $stmt->execute([$name]);
+        $value = $stmt->fetchColumn();
+        return $value === false ? null : (string) $value;
+    }
+
+    private function saveSetting(string $name, string $value): void
+    {
+        $this->db->prepare('INSERT INTO settings (name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)')
+            ->execute([$name, $value]);
     }
 
     public function deleteToken(int $id): void

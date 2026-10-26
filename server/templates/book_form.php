@@ -33,7 +33,7 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
 
 <section class="card">
   <h2><?= $edit ? 'Boek bewerken' : 'Boek toevoegen' ?></h2>
-  <form method="post" action="<?= $v->url($edit ? "/books/{$id}/edit" : '/books/add') ?>" class="grid">
+  <form method="post" action="<?= $v->url($edit ? "/books/{$id}/edit" : '/books/add') ?>" class="grid" <?= $edit ? 'enctype="multipart/form-data"' : '' ?>>
     <?= $v->csrf() ?>
     <label class="wide">Titel <input name="title" value="<?= $val('title') ?>" required></label>
     <label class="wide">Auteur(s) <input name="author" value="<?= $val('author') ?>"></label>
@@ -62,6 +62,10 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
     <?php endif ?>
     <label class="wide">Recensie <textarea name="review" rows="5"><?= $val('review') ?></textarea></label>
     <label class="check"><input type="checkbox" name="owned" <?= $owned ? 'checked' : '' ?>> In bezit</label>
+    <?php if ($edit): ?>
+      <label class="wide">Eigen omslag (JPEG, PNG of WebP) <input type="file" name="cover" accept="image/jpeg,image/png,image/webp"></label>
+      <label class="check"><input type="checkbox" name="remove_cover"> Eigen omslag verwijderen (dan weer die van Open Library)</label>
+    <?php endif ?>
     <?php if (!empty($duplicate)): ?>
       <label class="check"><input type="checkbox" name="allow_duplicate"> Toch toevoegen</label>
     <?php endif ?>

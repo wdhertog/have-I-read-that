@@ -105,12 +105,33 @@ Een submap (bijv. `example.nl/boeken/`) werkt ook.
 
 ## Beveiliging
 
+- **Tweestapsverificatie:** zet onder *Instellingen* aan dat de site na je
+  wachtwoord om een code uit je authenticator-app vraagt. Je krijgt 8 herstelcodes
+  die elk één keer werken. Alles kwijt? `php bin/disable-2fa.php` op de server zet
+  het uit.
+- **Tokens met beperkte rechten:** een token met *Alleen lezen* kan niets
+  wijzigen of posten (handig voor een widget of script).
+- **Covers op je eigen server:** covers worden één keer bij Open Library opgehaald
+  en in `server/var/covers` bewaard. Bezoekers van je pagina's maken dus geen
+  contact meer met Open Library of archive.org. Bij *Bewerken* kun je een eigen
+  omslag uploaden; die wordt opnieuw opgeslagen als schone JPEG, zonder
+  metadata zoals GPS-gegevens.
+- **Back-ups:** onder *Import/export* download je een volledige SQL-back-up, die je
+  met phpMyAdmin terugzet. Automatisch elke nacht, met de nieuwste 14 bewaard:
+
+  ```
+  15 3 * * * php /pad/naar/bin/backup.php
+  ```
+
+  Ze komen in `server/var/backups` (of `BACKUP_DIR`). Kopieer ze af en toe naar een
+  andere plek; een back-up op dezelfde server helpt niet als die server stuk gaat.
+
 - Inloggen: na 10 mislukte pogingen vanaf hetzelfde adres (IPv6: dezelfde /64) is
   dat adres een kwartier geblokkeerd. Kies toch een sterk wachtwoord, liefst als hash.
 - Een ander `APP_PASSWORD` instellen logt alle browsers uit.
 - Een app-token geeft volledige toegang, inclusief posten naar Mastodon. Trek het in
   onder *Instellingen* als je telefoon kwijt is.
-- Sessies staan in `server/var/sessions`; die map moet schrijfbaar zijn voor PHP.
+- Sessies, covers en back-ups staan in `server/var`; die map moet schrijfbaar zijn voor PHP.
 - Controleer na het installeren dat `https://jouw-site/.env` een 403 of 404 geeft.
 
 ## Instellingen (`server/.env`)

@@ -20,6 +20,8 @@
     <a class="button secondary" href="<?= $v->url('/export.csv') ?>">CSV (StoryGraph-formaat)</a>
     <a class="button secondary" href="<?= $v->url('/export.json') ?>">JSON</a>
   </p>
+  <p>Een volledige back-up van de database (ook tokens en instellingen) als SQL, terug te zetten met phpMyAdmin:</p>
+  <p><a class="button secondary" href="<?= $v->url('/backup.sql') ?>">Database-back-up (SQL)</a></p>
 </section>
 
 <?php if ($result): ?>
