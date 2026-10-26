@@ -6,7 +6,7 @@
     <?php foreach ($years as $y): ?>
     <tr class="<?= (int) $y['year'] === $year ? 'current' : '' ?>">
       <th><a href="<?= $v->url('/stats', ['year' => $y['year']]) ?>"><?= $y['year'] ?></a></th>
-      <td class="bar"><span style="width: <?= round(100 * $y['books'] / $maxBooks, 1) ?>%"></span></td>
+      <td class="bar"><span data-width="<?= round(100 * $y['books'] / $maxBooks, 1) ?>"></span></td>
       <td><?= $y['books'] ?> <?= $y['books'] === 1 ? 'boek' : 'boeken' ?></td>
       <td class="muted"><?= $y['pages'] ? number_format($y['pages'], 0, ',', '.') . ' pag.' : '' ?></td>
       <td class="muted"><?= $y['avg_rating'] ? '⌀ ' . $v->rating($y['avg_rating']) . ' ★' : '' ?></td>

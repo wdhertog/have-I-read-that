@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?= $v->e(($title ?? null) ? $title . ' · ' : '') ?>Have I read that?</title>
   <link rel="stylesheet" href="<?= $v->url('/assets/style.css') ?>">
+  <script src="<?= $v->url('/assets/app.js') ?>" defer></script>
 </head>
 <body>
   <?php if ($loggedIn): ?>

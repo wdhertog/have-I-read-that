@@ -20,6 +20,8 @@ final class Request
         public readonly array $files = [],
         public readonly array $headers = [],
         public readonly string $body = '',
+        public readonly string $ip = '',
+        public readonly bool $https = false,
     ) {
     }
 
@@ -48,6 +50,9 @@ final class Request
             $_FILES,
             $headers,
             (string) file_get_contents('php://input'),
+            // Deliberately not X-Forwarded-For: clients can forge that.
+            (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+            ($_SERVER['HTTPS'] ?? '') === 'on' || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https',
         );
     }
 

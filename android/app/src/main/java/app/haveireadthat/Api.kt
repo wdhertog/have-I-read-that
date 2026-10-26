@@ -115,8 +115,13 @@ class ApiException(message: String) : IOException(message)
 
 /** Talks to the /api endpoints of the PHP server. */
 class ApiClient(serverUrl: String, private val token: String) {
+    // The token gives full access, so it only ever travels over HTTPS.
     private val base: HttpUrl = serverUrl.trim().trimEnd('/').let {
-        if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it"
+        when {
+            it.startsWith("https://", ignoreCase = true) -> it
+            it.contains("://") -> throw ApiException("Gebruik een https://-adres.")
+            else -> "https://$it"
+        }
     }.toHttpUrl()
 
     suspend fun me(): Me = get("api/me")
@@ -170,6 +175,7 @@ class ApiClient(serverUrl: String, private val token: String) {
         private val http = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .followSslRedirects(false) // never follow a redirect from https to http
             .build()
         val json = Json {
             ignoreUnknownKeys = true

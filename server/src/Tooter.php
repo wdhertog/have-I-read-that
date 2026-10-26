@@ -35,6 +35,10 @@ final class Tooter
         $book = $this->books->find($bookId) ?? throw new MastodonException('Boek niet gevonden.');
         $text = trim((string) $text);
         $url = $this->mastodon->post($text !== '' ? $text : $this->compose($book, $kind), bin2hex(random_bytes(16)));
+        // The link is shown on the site and opened by the app: only accept web URLs.
+        if ($url !== null && !preg_match('#^https?://#i', $url)) {
+            $url = null;
+        }
         $this->books->logPost($bookId, $kind, $url);
         return $url;
     }

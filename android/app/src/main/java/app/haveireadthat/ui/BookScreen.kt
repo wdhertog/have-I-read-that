@@ -221,7 +221,7 @@ private fun History(book: Book) {
         book.posts.forEach { post ->
             val label = "${post.createdAt} — ${if (post.kind == "finished") "uitgelezen" else "begonnen"}"
             val url = post.url
-            if (url != null) {
+            if (url != null && url.startsWith("https://")) {
                 TextButton(onClick = { uriHandler.openUri(url) }) { Text(label) }
             } else {
                 Text(label)

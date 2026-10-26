@@ -17,6 +17,10 @@ if (PHP_VERSION_ID < 80100) {
     exit('Have I read that? heeft PHP 8.1 of nieuwer nodig; deze server draait PHP ' . PHP_VERSION . '.');
 }
 
+// Never show PHP errors to visitors (they can contain paths or credentials); log them.
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+
 require dirname(__DIR__) . '/autoload.php';
 
 $config = Config::load(dirname(__DIR__) . '/.env');
@@ -39,6 +43,8 @@ session_set_cookie_params([
     'samesite' => 'Lax',
 ]);
 ini_set('session.gc_maxlifetime', (string) (60 * 60 * 24 * 30));
+ini_set('session.use_strict_mode', '1');
+ini_set('session.use_only_cookies', '1');
 
 try {
     $db = Database::connect($config);

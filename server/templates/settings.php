@@ -18,7 +18,7 @@
     <?php foreach ($tokens as $t): ?>
     <tr>
       <td><?= $v->e($t['name']) ?></td><td><?= $v->e($t['created_at']) ?></td><td><?= $v->e($t['last_used_at'] ?? '—') ?></td>
-      <td><form method="post" action="<?= $v->url("/settings/tokens/{$t['id']}/delete") ?>" class="inline" onsubmit="return confirm('Token intrekken?')"><?= $v->csrf() ?><button class="link">intrekken</button></form></td>
+      <td><form method="post" action="<?= $v->url("/settings/tokens/{$t['id']}/delete") ?>" class="inline" data-confirm="Token intrekken?"><?= $v->csrf() ?><button class="link">intrekken</button></form></td>
     </tr>
     <?php endforeach ?>
   </table>

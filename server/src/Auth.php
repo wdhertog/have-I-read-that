@@ -11,26 +11,57 @@ use PDO;
  */
 final class Auth
 {
+    private const MAX_FAILED_LOGINS = 10;
+    private const LOCKOUT_MINUTES = 15;
+    private const EXAMPLE_PASSWORD = 'verander-mij';
+
     public function __construct(private Config $config, private PDO $db)
     {
     }
 
+    /** False when unset or still the placeholder from .env.example. */
     public function passwordConfigured(): bool
     {
-        return $this->config->get('APP_PASSWORD') !== '';
+        return !in_array($this->config->get('APP_PASSWORD'), ['', self::EXAMPLE_PASSWORD], true);
     }
 
     /** APP_PASSWORD may be plain text or a password_hash() result. */
     public function checkPassword(string $password): bool
     {
         $expected = $this->config->get('APP_PASSWORD');
-        if ($expected === '') {
+        if (!$this->passwordConfigured()) {
             return false;
         }
         if (str_starts_with($expected, '$2y$') || str_starts_with($expected, '$argon2')) {
             return password_verify($password, $expected);
         }
         return hash_equals($expected, $password);
+    }
+
+    public function tooManyAttempts(string $ip): bool
+    {
+        $stmt = $this->db->prepare(
+            'SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND attempted_at > NOW() - INTERVAL ' . self::LOCKOUT_MINUTES . ' MINUTE',
+        );
+        $stmt->execute([$ip]);
+        return (int) $stmt->fetchColumn() >= self::MAX_FAILED_LOGINS;
+    }
+
+    public function recordFailedLogin(string $ip): void
+    {
+        $this->db->prepare('INSERT INTO login_attempts (ip) VALUES (?)')->execute([$ip]);
+        $this->db->exec('DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL 1 DAY');
+    }
+
+    public function clearFailedLogins(string $ip): void
+    {
+        $this->db->prepare('DELETE FROM login_attempts WHERE ip = ?')->execute([$ip]);
+    }
+
+    /** Only same-site paths like "/books/12", so "next" can't send you to another site. */
+    public static function safeRedirectPath(string $next): ?string
+    {
+        return preg_match('#^/[A-Za-z0-9/_-]*$#', $next) && !str_starts_with($next, '//') ? $next : null;
     }
 
     public function login(): void

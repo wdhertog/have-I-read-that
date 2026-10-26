@@ -102,6 +102,28 @@ final class App
 
     public function handle(Request $request): Response
     {
+        $response = $this->dispatch($request);
+        $headers = [
+            'X-Content-Type-Options' => 'nosniff',
+            'X-Frame-Options' => 'DENY',
+            'Referrer-Policy' => 'same-origin',
+            // Covers come from Open Library (which redirects to archive.org), the rest is our own.
+            'Content-Security-Policy' => "default-src 'self'; img-src 'self' https:; object-src 'none'; "
+                . "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        ];
+        // Only the public page may be cached; everything else can contain private data or tokens.
+        if ($request->path !== '/' || $this->auth->loggedIn()) {
+            $headers['Cache-Control'] = 'no-store';
+        }
+        if ($request->https) {
+            $headers['Strict-Transport-Security'] = 'max-age=31536000';
+        }
+        $response->headers += $headers;
+        return $response;
+    }
+
+    private function dispatch(Request $request): Response
+    {
         $isApi = str_starts_with($request->path, '/api/');
         try {
             if ($isApi) {
