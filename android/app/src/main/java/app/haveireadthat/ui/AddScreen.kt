@@ -19,6 +19,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import app.haveireadthat.DuplicateException
 import app.haveireadthat.NewBook
 import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
@@ -54,6 +56,8 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
     var toot by rememberSaveable { mutableStateOf(settings.postByDefault) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
     var existingId by rememberSaveable { mutableStateOf<Int?>(null) }
+    // Set when saving was refused because the book already exists.
+    var duplicateOnSave by rememberSaveable { mutableStateOf(false) }
     var busy by rememberSaveable { mutableStateOf(false) }
 
     fun lookup(code: String) {
@@ -99,9 +103,11 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
             .addOnFailureListener { e -> message = "Scannen mislukt: ${e.message}" }
     }
 
-    fun save() {
+    fun save(allowDuplicate: Boolean = false) {
         busy = true
         message = null
+        existingId = null
+        duplicateOnSave = false
         scope.launch {
             try {
                 val response = settings.client().create(
@@ -112,12 +118,18 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
                         pages = pages.toIntOrNull(),
                         status = status,
                         toot = toot && (status == "reading" || status == "read"),
+                        allowDuplicate = allowDuplicate,
                     )
                 )
                 response.toot?.takeIf { !it.posted }?.let {
                     android.widget.Toast.makeText(context, "Niet gepost: ${it.error}", android.widget.Toast.LENGTH_LONG).show()
                 }
                 onOpen(response.book.id)
+            } catch (e: DuplicateException) {
+                message = e.message
+                existingId = e.existing.id
+                duplicateOnSave = true
+                busy = false
             } catch (e: Exception) {
                 message = "Opslaan mislukt: ${e.message}"
                 busy = false
@@ -148,7 +160,12 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
             message?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
             existingId?.let { id ->
                 Card(Modifier.fillMaxWidth()) {
-                    Button(onClick = { onOpen(id) }, modifier = Modifier.padding(12.dp)) { Text("Open dat boek") }
+                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onOpen(id) }) { Text("Open dat boek") }
+                        if (duplicateOnSave) {
+                            OutlinedButton(onClick = { save(allowDuplicate = true) }, enabled = !busy) { Text("Toch toevoegen") }
+                        }
+                    }
                 }
             }
             OutlinedTextField(title, { title = it }, label = { Text("Titel") }, modifier = Modifier.fillMaxWidth())
@@ -173,7 +190,7 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit) {
             if (status == "reading" || status == "read") {
                 CheckRow("Post naar Mastodon", toot) { toot = it }
             }
-            Button(onClick = ::save, enabled = !busy && title.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { save() }, enabled = !busy && title.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                 Text("Opslaan")
             }
         }

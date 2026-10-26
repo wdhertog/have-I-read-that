@@ -22,6 +22,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -41,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.haveireadthat.Book
+import app.haveireadthat.Goal
 import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
 import kotlinx.coroutines.delay
@@ -54,6 +56,11 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
     var error by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
+    var goal by remember { mutableStateOf<Goal?>(null) }
+
+    LaunchedEffect(reload) {
+        goal = runCatching { settings.client().me().goal }.getOrNull()
+    }
 
     LaunchedEffect(status, query, reload) {
         if (books != null) delay(300) // debounce typing
@@ -105,6 +112,7 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
                     FilterChip(selected = status == key, onClick = { status = key }, label = { Text(label) })
                 }
             }
+            goal?.let { GoalLine(it) }
             error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
             }
@@ -145,6 +153,20 @@ private fun BookRow(book: Book, onClick: () -> Unit) {
             }
             val meta = listOfNotNull(STATUSES[book.status], stars(book.rating).ifEmpty { null }, book.lastFinished)
             Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (book.status == "reading") ProgressLine(book)
         }
+    }
+}
+
+@Composable
+private fun GoalLine(goal: Goal) {
+    val target = goal.goal ?: return
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            if (goal.read >= target) "Leesdoel ${goal.year} gehaald: ${goal.read} van $target boeken 🎉"
+            else "Leesdoel ${goal.year}: ${goal.read} van $target boeken",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        LinearProgressIndicator(progress = { (goal.read.toFloat() / target).coerceAtMost(1f) }, modifier = Modifier.fillMaxWidth())
     }
 }

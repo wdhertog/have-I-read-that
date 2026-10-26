@@ -22,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.haveireadthat.ui.AddScreen
 import app.haveireadthat.ui.BookScreen
+import app.haveireadthat.ui.EditScreen
 import app.haveireadthat.ui.LibraryScreen
 import app.haveireadthat.ui.SetupScreen
 
@@ -57,7 +58,15 @@ fun App() {
             )
         }
         composable("book/{id}", arguments = listOf(navArgument("id") { type = NavType.IntType })) { entry ->
-            BookScreen(settings, entry.arguments?.getInt("id") ?: 0, onBack = { nav.popBackStack() })
+            BookScreen(
+                settings,
+                entry.arguments?.getInt("id") ?: 0,
+                onBack = { nav.popBackStack() },
+                onEdit = { id -> nav.navigate("edit/$id") },
+            )
+        }
+        composable("edit/{id}", arguments = listOf(navArgument("id") { type = NavType.IntType })) { entry ->
+            EditScreen(settings, entry.arguments?.getInt("id") ?: 0, onDone = { nav.popBackStack() })
         }
         composable("add") {
             AddScreen(
