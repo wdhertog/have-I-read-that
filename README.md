@@ -44,6 +44,10 @@ boeken.example.nl {
 
 Backups: `docker compose exec db mariadb-dump -u books -p books > backup.sql`.
 
+Docker vertrouwt standaard `X-Forwarded-For` van het Docker-netwerk
+(`TRUSTED_PROXIES=172.16.0.0/12`), zodat de inlogbeperking per echte bezoeker telt.
+Je reverse proxy moet die header dus zetten (Caddy en de nginx-config hieronder doen dat).
+
 ### Op webhosting met `public_html` (DirectAdmin, cPanel, Plesk)
 
 Composer en SSH zijn niet nodig.
@@ -93,6 +97,16 @@ Een submap (bijv. `example.nl/boeken/`) werkt ook.
 `APP_PASSWORD` mag platte tekst zijn. Liever een hash? Draai
 `php bin/hash-password.php` en zet de uitkomst tussen enkele quotes:
 `APP_PASSWORD='$2y$10$...'`.
+
+## Beveiliging
+
+- Inloggen: na 10 mislukte pogingen vanaf hetzelfde adres (IPv6: dezelfde /64) is
+  dat adres een kwartier geblokkeerd. Kies toch een sterk wachtwoord, liefst als hash.
+- Een ander `APP_PASSWORD` instellen logt alle browsers uit.
+- Een app-token geeft volledige toegang, inclusief posten naar Mastodon. Trek het in
+  onder *Instellingen* als je telefoon kwijt is.
+- Sessies staan in `server/var/sessions`; die map moet schrijfbaar zijn voor PHP.
+- Controleer na het installeren dat `https://jouw-site/.env` een 403 of 404 geeft.
 
 ## Instellingen (`server/.env`)
 

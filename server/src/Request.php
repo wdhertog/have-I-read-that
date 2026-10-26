@@ -25,7 +25,8 @@ final class Request
     ) {
     }
 
-    public static function fromGlobals(string $basePath): self
+    /** @param list<string> $trustedProxies IPs or CIDR ranges of reverse proxies in front of the app. */
+    public static function fromGlobals(string $basePath, array $trustedProxies = []): self
     {
         $path = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
         if ($basePath !== '' && str_starts_with($path, $basePath)) {
@@ -50,10 +51,57 @@ final class Request
             $_FILES,
             $headers,
             (string) file_get_contents('php://input'),
-            // Deliberately not X-Forwarded-For: clients can forge that.
-            (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+            self::clientIp((string) ($_SERVER['REMOTE_ADDR'] ?? ''), (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''), $trustedProxies),
             ($_SERVER['HTTPS'] ?? '') === 'on' || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https',
         );
+    }
+
+    /**
+     * The visitor's address. X-Forwarded-For can be forged by anyone, so it is only
+     * read when the request comes from a trusted proxy, and then from the right:
+     * the first address that isn't one of our proxies is the client.
+     *
+     * @param list<string> $trustedProxies
+     */
+    public static function clientIp(string $remoteAddr, string $forwardedFor, array $trustedProxies): string
+    {
+        if (!$trustedProxies || !self::inRanges($remoteAddr, $trustedProxies)) {
+            return $remoteAddr;
+        }
+        $chain = array_reverse(array_filter(array_map('trim', explode(',', $forwardedFor))));
+        foreach ($chain as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+                break;
+            }
+            if (!self::inRanges($ip, $trustedProxies)) {
+                return $ip;
+            }
+        }
+        return $remoteAddr;
+    }
+
+    /** @param list<string> $ranges */
+    public static function inRanges(string $ip, array $ranges): bool
+    {
+        $bin = @inet_pton($ip);
+        if ($bin === false) {
+            return false;
+        }
+        foreach ($ranges as $range) {
+            [$net, $bits] = array_pad(explode('/', trim($range), 2), 2, null);
+            $netBin = @inet_pton($net);
+            if ($netBin === false || strlen($netBin) !== strlen($bin)) {
+                continue;
+            }
+            $bits = $bits === null ? strlen($bin) * 8 : (int) $bits;
+            $bytes = intdiv($bits, 8);
+            $mask = $bits % 8 ? chr((0xFF << (8 - $bits % 8)) & 0xFF) : '';
+            if (substr($bin, 0, $bytes) === substr($netBin, 0, $bytes)
+                && ($mask === '' || (($bin[$bytes] & $mask) === ($netBin[$bytes] & $mask)))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function header(string $name): ?string

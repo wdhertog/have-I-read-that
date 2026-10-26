@@ -61,9 +61,7 @@ final class Books
         if (!isset(self::STATUSES[$data['status']])) {
             $data['status'] = 'to-read';
         }
-        if (!in_array($data['format'], self::FORMATS, true)) {
-            $data['format'] = null;
-        }
+        $data['format'] = self::normalizeFormat($data['format']);
         if ($data['isbn'] !== null) {
             $data['isbn'] = StoryGraph::cleanIsbn($data['isbn']);
         }
@@ -77,6 +75,14 @@ final class Books
         return $data;
     }
 
+    /** Map a format (e.g. StoryGraph's "digital") onto FORMATS, or null. */
+    public static function normalizeFormat(?string $format): ?string
+    {
+        $format = strtolower(trim((string) $format));
+        $format = ['digital' => 'ebook', 'e-book' => 'ebook', 'audiobook' => 'audio'][$format] ?? $format;
+        return in_array($format, self::FORMATS, true) ? $format : null;
+    }
+
     /**
      * A trimmed string from form or JSON input. Arrays/objects count as empty, so odd
      * input can't cause warnings or database errors.
@@ -84,6 +90,9 @@ final class Books
     public static function text(mixed $value, int $max): string
     {
         $value = is_string($value) || is_int($value) || is_float($value) ? trim((string) $value) : '';
+        if (!mb_check_encoding($value, 'UTF-8')) {
+            throw new InvalidArgumentException('Tekst bevat ongeldige tekens.');
+        }
         if (mb_strlen($value) > $max) {
             throw new InvalidArgumentException("Tekst is te lang (maximaal {$max} tekens).");
         }

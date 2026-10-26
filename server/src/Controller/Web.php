@@ -37,17 +37,16 @@ final class Web
     {
         $auth = $this->app->auth;
         $next = Auth::safeRedirectPath($request->query('next'));
-        if ($auth->tooManyAttempts($request->ip)) {
+        if (!$auth->registerAttempt($request->ip)) {
             $this->app->flash('error', 'Te veel mislukte pogingen. Probeer het over een kwartier opnieuw.');
             return Response::redirect($this->app->url('/login', ['next' => $next]));
         }
         $password = $request->input('password', '');
         if (is_string($password) && $auth->checkPassword($password)) {
-            $auth->clearFailedLogins($request->ip);
+            $auth->clearAttempts($request->ip);
             $auth->login();
             return Response::redirect($this->app->url($next ?? '/books'));
         }
-        $auth->recordFailedLogin($request->ip);
         sleep(1);
         $this->app->flash('error', 'Onjuist wachtwoord.');
         return Response::redirect($this->app->url('/login', ['next' => $next]));
@@ -257,9 +256,6 @@ final class Web
         $result = null;
         try {
             $csv = (string) file_get_contents($file['tmp_name']);
-            if (!mb_check_encoding($csv, 'UTF-8')) {
-                throw new InvalidArgumentException('Het bestand is geen UTF-8.');
-            }
             $result = $this->app->books->import(StoryGraph::parse($csv));
             $this->app->flash('ok', sprintf('%d boeken geïmporteerd, %d overgeslagen (bestonden al).',
                 count($result['imported']), count($result['skipped'])));

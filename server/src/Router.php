@@ -23,7 +23,7 @@ final class Router
             if (!preg_match($regex, $request->path, $m)) {
                 continue;
             }
-            if ($method !== $request->method) {
+            if ($method !== $request->method && !($method === 'GET' && $request->method === 'HEAD')) {
                 $allowed = true;
                 continue;
             }

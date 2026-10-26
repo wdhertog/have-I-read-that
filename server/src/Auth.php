@@ -32,30 +32,43 @@ final class Auth
         if (!$this->passwordConfigured()) {
             return false;
         }
-        if (str_starts_with($expected, '$2y$') || str_starts_with($expected, '$argon2')) {
+        // bcrypt ($2y$ from PHP, $2a$/$2b$ from other tools) or argon2.
+        if (preg_match('/^\$(2[aby]|argon2id?)\$/', $expected)) {
             return password_verify($password, $expected);
         }
         return hash_equals($expected, $password);
     }
 
-    public function tooManyAttempts(string $ip): bool
+    /**
+     * Log a login attempt and say whether this address may try at all. The attempt is
+     * written before the password is checked, so parallel requests can't slip past
+     * the limit; a successful login removes it again with clearAttempts().
+     */
+    public function registerAttempt(string $ip): bool
     {
+        $key = self::attemptKey($ip);
+        $this->db->prepare('INSERT INTO login_attempts (ip) VALUES (?)')->execute([$key]);
+        $this->db->exec('DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL 1 DAY');
         $stmt = $this->db->prepare(
             'SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND attempted_at > NOW() - INTERVAL ' . self::LOCKOUT_MINUTES . ' MINUTE',
         );
-        $stmt->execute([$ip]);
-        return (int) $stmt->fetchColumn() >= self::MAX_FAILED_LOGINS;
+        $stmt->execute([$key]);
+        return (int) $stmt->fetchColumn() <= self::MAX_FAILED_LOGINS;
     }
 
-    public function recordFailedLogin(string $ip): void
+    public function clearAttempts(string $ip): void
     {
-        $this->db->prepare('INSERT INTO login_attempts (ip) VALUES (?)')->execute([$ip]);
-        $this->db->exec('DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL 1 DAY');
+        $this->db->prepare('DELETE FROM login_attempts WHERE ip = ?')->execute([self::attemptKey($ip)]);
     }
 
-    public function clearFailedLogins(string $ip): void
+    /** IPv6 users typically own a whole /64, so count those together. */
+    private static function attemptKey(string $ip): string
     {
-        $this->db->prepare('DELETE FROM login_attempts WHERE ip = ?')->execute([$ip]);
+        $bin = @inet_pton($ip);
+        if ($bin !== false && strlen($bin) === 16) {
+            return inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . '/64';
+        }
+        return $ip;
     }
 
     /** Only same-site paths like "/books/12", so "next" can't send you to another site. */
@@ -67,7 +80,7 @@ final class Auth
     public function login(): void
     {
         self::regenerate();
-        $_SESSION = ['logged_in' => true, 'csrf' => bin2hex(random_bytes(32))];
+        $_SESSION = ['logged_in' => $this->passwordFingerprint(), 'csrf' => bin2hex(random_bytes(32))];
     }
 
     public function logout(): void
@@ -85,7 +98,9 @@ final class Auth
 
     public function loggedIn(): bool
     {
-        return !empty($_SESSION['logged_in']);
+        // Sessions are tied to the current password: changing APP_PASSWORD logs everyone out.
+        $session = $_SESSION['logged_in'] ?? null;
+        return is_string($session) && $this->passwordConfigured() && hash_equals($this->passwordFingerprint(), $session);
     }
 
     public function csrfToken(): string
@@ -93,7 +108,12 @@ final class Auth
         return $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
     }
 
-    public function checkCsrf(?string $token): bool
+    private function passwordFingerprint(): string
+    {
+        return hash_hmac('sha256', 'session', $this->config->get('APP_PASSWORD'));
+    }
+
+    public function checkCsrf(mixed $token): bool
     {
         return is_string($token) && isset($_SESSION['csrf']) && hash_equals($_SESSION['csrf'], $token);
     }

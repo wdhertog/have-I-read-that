@@ -42,6 +42,14 @@ session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
+// Own session folder: on shared hosting the default one is cleaned by other apps or
+// cron after ~24 minutes, which would ignore our 30-day lifetime.
+$sessionDir = dirname(__DIR__) . '/var/sessions';
+if ((is_dir($sessionDir) || @mkdir($sessionDir, 0700, true)) && is_writable($sessionDir)) {
+    session_save_path($sessionDir);
+    ini_set('session.gc_probability', '1');
+    ini_set('session.gc_divisor', '100');
+}
 ini_set('session.gc_maxlifetime', (string) (60 * 60 * 24 * 30));
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
@@ -61,7 +69,8 @@ try {
     exit;
 }
 
-$request = Request::fromGlobals($basePath);
+$trustedProxies = array_values(array_filter(array_map('trim', explode(',', $config->get('TRUSTED_PROXIES')))));
+$request = Request::fromGlobals($basePath, $trustedProxies);
 if (!str_starts_with($request->path, '/api/')) {
     session_start();
 }
