@@ -73,7 +73,7 @@ final class GoogleBooks
                 'pages' => isset($info['pageCount']) && $info['pageCount'] > 0 ? (int) $info['pageCount'] : null,
                 'year' => preg_match('/^\d{4}/', (string) ($info['publishedDate'] ?? ''), $m) ? (int) $m[0] : null,
                 'publisher' => $info['publisher'] ?? null,
-                'language' => $info['language'] ?? null,
+                'language' => Language::normalize($info['language'] ?? null),
                 // A bigger version than the 128px thumbnail, over HTTPS.
                 'cover' => $cover !== null ? preg_replace('#^http://#', 'https://', str_replace('&edge=curl', '', $cover)) . '&fife=w600' : null,
             ];

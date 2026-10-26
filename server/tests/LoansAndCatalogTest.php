@@ -11,6 +11,7 @@ use App\Config;
 use App\Covers;
 use App\Database;
 use App\Kb;
+use App\Language;
 use App\Request;
 use App\Response;
 use PDO;
@@ -144,6 +145,29 @@ XML;
         ], Kb::parse(self::KB_RECORD));
         self::assertNull(Kb::parse(self::KB_EMPTY));
         self::assertNull(Kb::parse('<html>Service unavailable'));
+        // What the KB really sends: a Dutch word first, the code after it.
+        $record = str_replace('<dc:language>dut</dc:language>', '<dc:language>nederlands</dc:language><dc:language>dut</dc:language>', self::KB_RECORD);
+        self::assertSame('nl', Kb::parse($record)['language']);
+        self::assertSame('nl', Kb::parse(str_replace('>dut<', '>nederlands<', self::KB_RECORD))['language']);
+    }
+
+    public function testLanguagesAreStoredAsCodesAndShownInDutch(): void
+    {
+        foreach (['nl', 'NL', 'nl-NL', 'dut', 'nld', 'nederlands', 'Dutch'] as $value) {
+            self::assertSame('nl', Language::normalize($value), $value);
+        }
+        self::assertSame('en', Language::normalize('eng'));
+        self::assertSame('Klingon', Language::normalize(' Klingon '));
+        self::assertNull(Language::normalize(''));
+        self::assertSame('Nederlands', Language::label('nl'));
+        self::assertSame('Engels', Language::label('english'));
+        self::assertSame('Klingon', Language::label('Klingon'));
+
+        $id = $this->book('De handschoen');
+        $this->db->prepare('UPDATE books SET language = ? WHERE id = ?')->execute(['nederlands', $id]);
+        $this->db->exec(file_get_contents(dirname(__DIR__) . '/migrations/009_language_codes.sql'));
+        self::assertSame('nl', $this->db->query("SELECT language FROM books WHERE id = {$id}")->fetchColumn());
+        self::assertStringContainsString('<dd>Nederlands</dd>', $this->app->handle(new Request('GET', "/books/{$id}"))->body);
     }
 
     /** A fake internet: answers by URL, records what was asked. */

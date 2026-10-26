@@ -79,14 +79,17 @@ final class Kb
                 break;
             }
         }
-        $language = $values('language')[0] ?? null;
+        // The KB gives both "nederlands" and an ISO code; prefer one we recognise.
+        $languages = array_map([Language::class, 'normalize'], $values('language'));
+        $known = array_values(array_filter($languages, static fn ($l) => isset(Language::NAMES[$l])));
+        $language = $known[0] ?? $languages[0] ?? null;
         return [
             'title' => $title,
             'author' => implode(', ', array_unique(array_filter($authors))),
             'publisher' => isset($values('publisher')[0]) ? trim(preg_replace('/^.*?:\s*/', '', $values('publisher')[0])) : null,
             'year' => $year,
             'pages' => $pages,
-            'language' => $language !== null ? (['dut' => 'nl', 'nld' => 'nl', 'eng' => 'en', 'ger' => 'de', 'fre' => 'fr'][$language] ?? $language) : null,
+            'language' => $language,
         ];
     }
 

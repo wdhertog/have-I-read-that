@@ -14,7 +14,7 @@
     <?= $v->partial('_progress', ['b' => $book]) ?>
     <dl>
       <?php foreach (['contributors' => 'Medewerkers', 'isbn' => 'ISBN', 'pages' => "Pagina's", 'publisher' => 'Uitgever', 'published_year' => 'Jaar', 'language' => 'Taal', 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods'] as $key => $label): ?>
-        <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?= $v->e($book[$key]) ?></dd><?php endif ?>
+        <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?= $v->e($key === 'language' ? App\Language::label($book[$key]) : $book[$key]) ?></dd><?php endif ?>
       <?php endforeach ?>
       <?php foreach ($book['details'] ?? [] as $name => $value): ?>
         <dt><?= $v->e(App\StoryGraph::DETAIL_LABELS[$name] ?? $name) ?></dt><dd><?= $v->e($value) ?></dd>
