@@ -10,9 +10,15 @@
     </p>
     <?= $v->partial('_progress', ['b' => $book]) ?>
     <dl>
-      <?php foreach (['isbn' => 'ISBN', 'pages' => "Pagina's", 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods'] as $key => $label): ?>
-        <?php if ($book[$key]): ?><dt><?= $label ?></dt><dd><?= $v->e($book[$key]) ?></dd><?php endif ?>
+      <?php foreach (['contributors' => 'Medewerkers', 'isbn' => 'ISBN', 'pages' => "Pagina's", 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods'] as $key => $label): ?>
+        <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?= $v->e($book[$key]) ?></dd><?php endif ?>
       <?php endforeach ?>
+      <?php foreach ($book['details'] ?? [] as $name => $value): ?>
+        <dt><?= $v->e(App\StoryGraph::DETAIL_LABELS[$name] ?? $name) ?></dt><dd><?= $v->e($value) ?></dd>
+      <?php endforeach ?>
+      <?php if ($book['content_warnings'] ?? null): ?>
+        <dt>Inhoudswaarschuwingen</dt><dd><?= $v->e($book['content_warnings']) ?><?php if ($book['content_warning_description']): ?><br><span class="muted"><?= $v->e($book['content_warning_description']) ?></span><?php endif ?></dd>
+      <?php endif ?>
       <dt>Toegevoegd</dt><dd><?= $v->e($book['date_added']) ?><?= $book['source'] === 'storygraph' ? ' (StoryGraph)' : '' ?></dd>
     </dl>
     <?php if ($book['review']): ?><blockquote><?= $v->e($book['review']) ?></blockquote><?php endif ?>

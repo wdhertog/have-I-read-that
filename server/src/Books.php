@@ -407,35 +407,47 @@ final class Books
         $this->query('INSERT INTO posts (book_id, kind, url) VALUES (?, ?, ?)', [$bookId, $kind, $url]);
     }
 
+    /** Fields an import may fill in, with the Dutch name shown in the preview. */
+    private const IMPORT_FIELDS = [
+        'author' => 'auteur', 'isbn' => 'ISBN', 'format' => 'formaat', 'pages' => "pagina's", 'rating' => 'beoordeling',
+        'review' => 'recensie', 'tags' => 'tags', 'moods' => 'moods', 'contributors' => 'medewerkers',
+        'content_warnings' => 'inhoudswaarschuwingen', 'content_warning_description' => 'toelichting inhoudswaarschuwingen',
+    ];
+
     /**
-     * Import parsed StoryGraph books, skipping ones that already exist.
+     * Import parsed StoryGraph books. New books are added; for books that are already
+     * here, only empty fields are filled in and missing reads added, so whatever you
+     * changed yourself stays. With $dryRun nothing is saved: you get the preview.
      *
      * @param list<array<string, mixed>> $books Output of StoryGraph::parse().
-     * @return array{imported: list<string>, skipped: list<string>}
+     * @return array{imported: list<string>, updated: array<string, list<string>>, unchanged: list<string>}
      */
-    public function import(array $books): array
+    public function import(array $books, bool $dryRun = false): array
     {
-        $result = ['imported' => [], 'skipped' => []];
+        $result = ['imported' => [], 'updated' => [], 'unchanged' => []];
         $this->db->beginTransaction();
         try {
             foreach ($books as $book) {
-                if ($this->exists($book)) {
-                    $result['skipped'][] = $book['title'];
+                $existing = $this->findDuplicate($book['title'], $book['author'], $book['isbn']);
+                if ($existing === null) {
+                    $this->insertImported($book);
+                    $result['imported'][] = $book['title'];
                     continue;
                 }
-                $this->query(
-                    "INSERT INTO books (title, author, isbn, format, status, rating, review, tags, moods, owned, source, date_added)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'storygraph', COALESCE(?, CURDATE()))",
-                    [$book['title'], $book['author'], $book['isbn'], $book['format'], $book['status'], $book['rating'],
-                     $book['review'], $book['tags'], $book['moods'], $book['owned'], $book['date_added']],
-                );
-                $id = (int) $this->db->lastInsertId();
-                foreach ($book['reads'] as [$started, $finished]) {
-                    $this->addRead($id, $started, $finished);
+                $changes = $this->fillMissing($existing, $book);
+                $added = $this->addMissingReads($existing['id'], $book['reads']);
+                if ($added) {
+                    $changes[] = $added === 1 ? '1 leesmoment' : "{$added} leesmomenten";
                 }
-                $result['imported'][] = $book['title'];
+                if ($changes) {
+                    // Same title twice in one file: keep both lists of changes apart.
+                    $key = isset($result['updated'][$existing['title']]) ? $existing['title'] . " (#{$existing['id']})" : $existing['title'];
+                    $result['updated'][$key] = $changes;
+                } else {
+                    $result['unchanged'][] = $existing['title'];
+                }
             }
-            $this->db->commit();
+            $dryRun ? $this->db->rollBack() : $this->db->commit();
         } catch (\Throwable $e) {
             $this->db->rollBack();
             throw $e;
@@ -444,9 +456,82 @@ final class Books
     }
 
     /** @param array<string, mixed> $book */
-    private function exists(array $book): bool
+    private function insertImported(array $book): void
     {
-        return $this->findDuplicate($book['title'], $book['author'], $book['isbn']) !== null;
+        $this->query(
+            "INSERT INTO books (title, author, isbn, format, pages, status, rating, review, tags, moods, owned, contributors,
+                                content_warnings, content_warning_description, details, source, date_added)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'storygraph', COALESCE(?, CURDATE()))",
+            [$book['title'], $book['author'], $book['isbn'], $book['format'], $book['pages'], $book['status'], $book['rating'],
+             $book['review'], $book['tags'], $book['moods'], $book['owned'], $book['contributors'], $book['content_warnings'],
+             $book['content_warning_description'], $book['details'] ? json_encode($book['details'], JSON_UNESCAPED_UNICODE) : null,
+             $book['date_added']],
+        );
+        $id = (int) $this->db->lastInsertId();
+        foreach ($book['reads'] as [$started, $finished]) {
+            $this->addRead($id, $started, $finished);
+        }
+    }
+
+    /**
+     * Fill the existing book's empty fields from the import.
+     *
+     * @param array<string, mixed> $existing
+     * @param array<string, mixed> $book
+     * @return list<string> What was filled in.
+     */
+    private function fillMissing(array $existing, array $book): array
+    {
+        $set = [];
+        $changes = [];
+        foreach (self::IMPORT_FIELDS as $field => $label) {
+            $empty = $existing[$field] === null || $existing[$field] === '';
+            if ($empty && ($book[$field] ?? null) !== null && $book[$field] !== '') {
+                $set[$field] = $book[$field];
+                $changes[] = $label;
+            }
+        }
+        if (!$existing['owned'] && $book['owned']) {
+            $set['owned'] = 1;
+            $changes[] = 'in bezit';
+        }
+        $details = $existing['details'];
+        $newDetails = array_diff_key($book['details'], $details);
+        if ($newDetails) {
+            $set['details'] = json_encode($details + $newDetails, JSON_UNESCAPED_UNICODE);
+            foreach (array_keys($newDetails) as $name) {
+                $changes[] = mb_strtolower(StoryGraph::DETAIL_LABELS[$name] ?? $name);
+            }
+        }
+        if ($set) {
+            $columns = implode(', ', array_map(static fn (string $c) => "{$c} = ?", array_keys($set)));
+            $this->query("UPDATE books SET {$columns} WHERE id = ?", [...array_values($set), $existing['id']]);
+        }
+        return $changes;
+    }
+
+    /**
+     * Add reads from the import that aren't here yet. A read counts as present when one
+     * has the same finish date, or (for an unfinished one) the same start date.
+     *
+     * @param list<array{0: ?string, 1: ?string}> $reads
+     */
+    private function addMissingReads(int $bookId, array $reads): int
+    {
+        $have = $this->reads($bookId);
+        $finished = array_filter(array_column($have, 'finished'));
+        $started = array_filter(array_column($have, 'started'));
+        $added = 0;
+        foreach ($reads as [$start, $finish]) {
+            $present = $finish !== null ? in_array($finish, $finished, true) : ($start !== null && in_array($start, $started, true));
+            if (!$present && ($start !== null || $finish !== null)) {
+                $this->addRead($bookId, $start, $finish);
+                $finished[] = $finish;
+                $started[] = $start;
+                $added++;
+            }
+        }
+        return $added;
     }
 
     /** @return list<array{year: string, books: int, pages: ?int, avg_rating: ?float}> */
@@ -511,6 +596,9 @@ final class Books
         $book['rating'] = $book['rating'] !== null ? (float) $book['rating'] : null;
         $book['pages'] = $book['pages'] !== null ? (int) $book['pages'] : null;
         $book['owned'] = (bool) $book['owned'];
+        if (array_key_exists('details', $book)) {
+            $book['details'] = is_string($book['details']) ? (json_decode($book['details'], true) ?: []) : [];
+        }
         foreach (['progress_page', 'progress_percent'] as $key) {
             if (array_key_exists($key, $book)) {
                 $book[$key] = $book[$key] !== null ? (int) $book[$key] : null;

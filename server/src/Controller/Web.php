@@ -397,6 +397,7 @@ final class Web
         return $this->app->render('import', ['result' => null]);
     }
 
+    /** Step 1: read the file and show what an import would do, without saving anything. */
     public function import(Request $request): Response
     {
         $file = $request->files['file'] ?? null;
@@ -404,16 +405,54 @@ final class Web
             $this->app->flash('error', 'Kies eerst een CSV-bestand.');
             return Response::redirect($this->app->url('/import'));
         }
-        $result = null;
         try {
             $csv = (string) file_get_contents($file['tmp_name']);
-            $result = $this->app->books->import(StoryGraph::parse($csv));
-            $this->app->flash('ok', sprintf('%d boeken geïmporteerd, %d overgeslagen (bestonden al).',
-                count($result['imported']), count($result['skipped'])));
+            $preview = $this->app->books->import(StoryGraph::parse($csv), dryRun: true);
         } catch (InvalidArgumentException $e) {
             $this->app->flash('error', 'Import mislukt: ' . $e->getMessage());
+            return Response::redirect($this->app->url('/import'));
         }
+        // Keep the file until it's confirmed; the session only holds a random name.
+        $name = bin2hex(random_bytes(16));
+        $dir = $this->importDir();
+        file_put_contents("{$dir}/{$name}.csv", $csv);
+        $_SESSION['pending_import'] = $name;
+        return $this->app->render('import', ['result' => null, 'preview' => $preview]);
+    }
+
+    /** Step 2: do it for real. */
+    public function confirmImport(Request $request): Response
+    {
+        $name = $_SESSION['pending_import'] ?? null;
+        unset($_SESSION['pending_import']);
+        $path = is_string($name) && ctype_xdigit($name) ? $this->importDir() . "/{$name}.csv" : null;
+        if ($path === null || !is_file($path)) {
+            $this->app->flash('error', 'Kies het bestand opnieuw; het voorbeeld is verlopen.');
+            return Response::redirect($this->app->url('/import'));
+        }
+        try {
+            $result = $this->app->books->import(StoryGraph::parse((string) file_get_contents($path)));
+        } finally {
+            unlink($path);
+        }
+        $this->app->flash('ok', sprintf('%d boeken toegevoegd, %d aangevuld, %d ongewijzigd.',
+            count($result['imported']), count($result['updated']), count($result['unchanged'])));
         return $this->app->render('import', ['result' => $result]);
+    }
+
+    /** Folder for files waiting for confirmation; anything older than a day is cleared. */
+    private function importDir(): string
+    {
+        $dir = dirname(__DIR__, 2) . '/var/imports';
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Kan de map {$dir} niet maken.");
+        }
+        foreach (glob("{$dir}/*.csv") ?: [] as $old) {
+            if (filemtime($old) < time() - 86400) {
+                @unlink($old);
+            }
+        }
+        return $dir;
     }
 
     public function settings(Request $request): Response

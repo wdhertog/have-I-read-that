@@ -182,9 +182,19 @@ Proberen zonder te posten: `php bin/year-review.php 2025 --dry-run`.
 2. Download de CSV zodra hij klaar is.
 3. Op de site: *Import* → kies het bestand → *Importeren*.
 
-Leesstatus, beoordeling, recensie, tags, moods, formaat, “owned” en alle
-leesdatums (ook herlezingen) worden overgenomen. Er wordt niets gepost. Boeken die
-al bestaan (zelfde ISBN, of zelfde titel + auteur) worden overgeslagen.
+Alle kolommen van de export worden overgenomen:
+- leesstatus, beoordeling, recensie, tags, moods, formaat en “owned”;
+- alle leesdatums (ook herlezingen);
+- medewerkers en inhoudswaarschuwingen;
+- de vragen over tempo en personages.
+
+Kolommen die de app niet kent, worden ook bewaard. Er wordt niets gepost.
+
+Je ziet eerst een voorbeeld; pas na *Bevestigen* verandert er iets. Opnieuw
+importeren is veilig. Boeken die er al zijn (zelfde ISBN, of zelfde titel + auteur)
+worden niet dubbel toegevoegd: alleen lege velden worden aangevuld en ontbrekende
+leesmomenten toegevoegd. Wat je zelf hebt ingevuld of aangepast, en de status,
+blijven staan.
 
 ## Android-app
 

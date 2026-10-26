@@ -21,6 +21,26 @@ final class StoryGraph
         'did-not-finish' => 'dnf',
     ];
 
+    /** Columns with a field of their own; every other non-empty column goes into "details". */
+    private const MAPPED = [
+        'Title', 'Authors', 'Contributors', 'ISBN/UID', 'Format', 'Read Status', 'Date Added', 'Last Date Read',
+        'Dates Read', 'Read Count', 'Moods', 'Star Rating', 'Review', 'Content Warnings',
+        'Content Warning Description', 'Tags', 'Owned?',
+    ];
+
+    /** Page counts, should an export carry them. */
+    private const PAGE_COLUMNS = ['Pages', 'Page Count', 'Number of Pages', 'Number Of Pages'];
+
+    /** Dutch labels for StoryGraph's review questions, for display. */
+    public const DETAIL_LABELS = [
+        'Pace' => 'Tempo',
+        'Character- or Plot-Driven?' => 'Personages of plot?',
+        'Strong Character Development?' => 'Sterke karakterontwikkeling?',
+        'Loveable Characters?' => 'Innemende personages?',
+        'Diverse Characters?' => 'Diverse personages?',
+        'Flawed Characters?' => 'Personages met gebreken?',
+    ];
+
     private const DATE_RE = '#\d{4}[/-]\d{1,2}[/-]\d{1,2}#';
 
     /** Return an ISO date (YYYY-MM-DD) or null. Accepts Y/m/d, Y-m-d and d/m/Y. */
@@ -127,6 +147,18 @@ final class StoryGraph
             if (!$reads && $lastRead) {
                 $reads = [[null, $lastRead]];
             }
+            $details = [];
+            $pages = null;
+            foreach ($row as $name => $value) {
+                if ($value === '' || in_array($name, self::MAPPED, true)) {
+                    continue;
+                }
+                if (in_array($name, self::PAGE_COLUMNS, true) && ctype_digit($value) && (int) $value <= Books::MAX_PAGES) {
+                    $pages = (int) $value ?: null;
+                    continue;
+                }
+                $details[self::clip((string) $name, 100)] = self::clip($value, 1000);
+            }
             $books[] = [
                 'title' => self::clip($row['Title'], 500),
                 'author' => self::clip($row['Authors'] ?? '', 500),
@@ -137,6 +169,11 @@ final class StoryGraph
                 'review' => self::clip($row['Review'] ?? '', Books::MAX_REVIEW) ?: null,
                 'tags' => self::clip($row['Tags'] ?? '', 1000) ?: null,
                 'moods' => self::clip($row['Moods'] ?? '', 1000) ?: null,
+                'contributors' => self::clip($row['Contributors'] ?? '', 1000) ?: null,
+                'content_warnings' => self::clip($row['Content Warnings'] ?? '', 5000) ?: null,
+                'content_warning_description' => self::clip($row['Content Warning Description'] ?? '', 5000) ?: null,
+                'details' => $details,
+                'pages' => $pages,
                 'owned' => strtolower($row['Owned?'] ?? '') === 'yes' ? 1 : 0,
                 'date_added' => self::parseDate($row['Date Added'] ?? ''),
                 'reads' => $reads,

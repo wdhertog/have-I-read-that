@@ -266,6 +266,10 @@ final class Api
             $out[$key] = $book[$key] ?? null;
         }
         $out['last_finished'] = $book['last_finished'] ?? null;
+        foreach (['contributors', 'content_warnings', 'content_warning_description'] as $key) {
+            $out[$key] = $book[$key] ?? null;
+        }
+        $out['details'] = (object) ($book['details'] ?? []);
         $out['progress_page'] = $book['progress_page'] ?? null;
         $out['progress_percent'] = $book['progress_percent'] ?? null;
         $out['cover_url'] = $this->app->coverUrl($book, absolute: true);
