@@ -263,6 +263,8 @@ final class Web
             'years' => $years,
             'year' => $year,
             'goal' => $this->app->books->goalProgress($year),
+            'reviewText' => $this->app->yearReview->compose($year),
+            'reviewCount' => count($this->app->yearReview->books($year)),
             'books' => $this->app->books->readInYear($year),
             'topAuthors' => $this->app->books->topAuthors(),
             'maxBooks' => max(array_column($years, 'books') ?: [0]),
@@ -280,6 +282,38 @@ final class Web
             $this->app->flash('error', $e->getMessage());
         }
         return Response::redirect($this->app->url('/stats', ['year' => $year ?: null]));
+    }
+
+    public function postYearReview(Request $request): Response
+    {
+        $year = 0;
+        try {
+            $year = (int) self::optionalInt($request->input('year'));
+            $text = Books::text($request->input('text'), 5000);
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+            return Response::redirect($this->app->url('/stats'));
+        }
+        if (!$this->app->tooter->configured()) {
+            $this->app->flash('error', 'Niet gepost: Mastodon is nog niet ingesteld.');
+        } else {
+            try {
+                $this->app->yearReview->post($year, $text, $request->input('collage') === 'on');
+                $this->app->flash('ok', "Jaaroverzicht {$year} gepost naar Mastodon.");
+            } catch (MastodonException $e) {
+                $this->app->flash('error', 'Posten naar Mastodon mislukt: ' . $e->getMessage());
+            }
+        }
+        return Response::redirect($this->app->url('/stats', ['year' => $year ?: null]));
+    }
+
+    /** Preview of the year's cover collage. */
+    public function collage(Request $request, int $year): Response
+    {
+        $collage = $this->app->yearReview->collage($year);
+        return $collage
+            ? new Response($collage['bytes'], 200, ['Content-Type' => 'image/jpeg'])
+            : new Response('Geen covers gevonden voor dit jaar.', 404, ['Content-Type' => 'text/plain; charset=utf-8']);
     }
 
     public function exportCsv(Request $request): Response

@@ -12,7 +12,7 @@
   <?php foreach ($reading as $b): ?>
   <div class="public-book">
     <?= $v->partial('_cover', ['b' => $b, 'size' => 'S']) ?>
-    <div><strong><?= $v->e($b['title']) ?></strong><div class="muted"><?= $v->e($b['author']) ?></div><?= $v->partial('_progress', ['b' => $b]) ?></div>
+    <div><strong><a href="<?= $v->url('/boek/' . $b['id']) ?>"><?= $v->e($b['title']) ?></a></strong><div class="muted"><?= $v->e($b['author']) ?></div><?= $v->partial('_progress', ['b' => $b]) ?></div>
   </div>
   <?php endforeach ?>
 </section>
@@ -32,7 +32,7 @@
   <div class="public-book">
     <?= $v->partial('_cover', ['b' => $b, 'size' => 'M']) ?>
     <div>
-      <strong><?= $v->e($b['title']) ?></strong>
+      <strong><a href="<?= $v->url('/boek/' . $b['id']) ?>"><?= $v->e($b['title']) ?></a></strong>
       <div class="muted"><?= $v->e($b['author']) ?></div>
       <div class="meta">
         <?php if ($b['rating']): ?><span class="stars"><?= $v->stars($b['rating']) ?></span><?php endif ?>
@@ -43,4 +43,4 @@
   </div>
   <?php endforeach ?>
 </section>
-<footer class="foot muted">Bijgehouden met Have I read that?</footer>
+<footer class="foot muted">Bijgehouden met Have I read that? · <a href="<?= $v->url('/feed.xml') ?>">RSS</a></footer>

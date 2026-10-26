@@ -22,6 +22,8 @@ android/   Kotlin/Jetpack Compose-app die met de API praat
 - Leesdoel per jaar en leesvoortgang (pagina of percentage), eventueel met een toot
 - Export naar CSV (StoryGraph-formaat, weer te importeren) en JSON
 - Waarschuwing als je een boek toevoegt dat er al in staat
+- Toots met de cover als afbeelding (met alt-tekst), en een jaaroverzicht-toot met een collage van covers
+- Openbare boekpagina's met nette previews als je een link deelt, en een RSS-feed (`/feed.xml`)
 - Statistieken per jaar, boeken zoeken via Open Library, covers via Open Library
 - Eén gebruiker met een wachtwoord; de app logt in met een token dat je op de site aanmaakt
 
@@ -127,6 +129,8 @@ Een submap (bijv. `example.nl/boeken/`) werkt ook.
 | `MASTODON_TEMPLATE_FINISHED` | zie `.env.example` | Tekst bij uitlezen |
 | `MASTODON_TEMPLATE_STARTED` | zie `.env.example` | Tekst bij beginnen |
 | `MASTODON_TEMPLATE_PROGRESS` | `📖 {percent}% gelezen van {title} – {author}` + hashtags | Tekst bij voortgang; ook `{page}` en `{pages}` |
+| `MASTODON_ATTACH_COVER` | `true` | De cover als afbeelding bij de toot |
+| `APP_URL` | — | Adres van je site, voor de RSS-feed, previews en `{url}` in toots |
 | `MASTODON_MAX_CHARS` | `500` | Lange recensies worden ingekort tot de toot past |
 
 In de templates kun je `{title}`, `{author}`, `{stars}`, `{rating}`, `{review}` en
@@ -138,6 +142,18 @@ In de templates kun je `{title}`, `{author}`, `{stars}`, `{rating}`, `{review}` 
 2. Vink alleen `write:statuses` en `read:accounts` aan.
 3. Zet het toegangstoken in `MASTODON_ACCESS_TOKEN` en je server in `MASTODON_INSTANCE`.
 4. Controleer het op de site onder *Instellingen → Test verbinding*.
+
+## Jaaroverzicht
+
+Onder *Statistieken* staat een kaart om je leesjaar te posten: aantal boeken,
+pagina's, je favoriet en een collage van covers. Je kunt de tekst eerst aanpassen.
+Automatisch posten op 31 december kan met een cronjob in je hostingpaneel:
+
+```
+0 20 31 12 * php /pad/naar/bin/year-review.php
+```
+
+Proberen zonder te posten: `php bin/year-review.php 2025 --dry-run`.
 
 ## StoryGraph importeren
 

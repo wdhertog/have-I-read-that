@@ -19,6 +19,8 @@ final class Books
         'dnf' => 'Niet uitgelezen',
     ];
     public const FORMATS = ['paperback', 'hardcover', 'ebook', 'audio'];
+    /** Statuses the public page shows; the to-read list and DNFs stay private. */
+    public const PUBLIC_STATUSES = ['reading', 'read'];
     public const MAX_REVIEW = 10000;
     public const MAX_PAGES = 100000;
     public const MAX_GOAL = 10000;
@@ -471,6 +473,21 @@ final class Books
             "SELECT b.*, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id
              WHERE r.finished >= ? AND r.finished < ? AND b.status = 'read' ORDER BY r.finished DESC",
             [sprintf('%04d-01-01', $year), sprintf('%04d-01-01', $year + 1)],
+        )->fetchAll();
+        return array_map([self::class, 'cast'], $rows);
+    }
+
+    /**
+     * The most recently finished books, for the feed.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function recentlyFinished(int $limit = 50): array
+    {
+        $rows = $this->query(
+            "SELECT b.*, r.finished FROM `reads` r JOIN books b ON b.id = r.book_id
+             WHERE r.finished IS NOT NULL AND b.status = 'read'
+             ORDER BY r.finished DESC, r.id DESC LIMIT " . max(1, $limit),
         )->fetchAll();
         return array_map([self::class, 'cast'], $rows);
     }
