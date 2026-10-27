@@ -33,6 +33,24 @@ final class Http
         ], $timeout, 5 * 1024 * 1024);
     }
 
+    /**
+     * The system's own certificate lists, in the usual places. Some hosts' PHP (often
+     * the command line) has none configured, or an outdated one that doesn't know the
+     * root of a site's certificate ("unable to get local issuer certificate").
+     *
+     * @return list<string>
+     */
+    private static function systemCaFiles(): array
+    {
+        $default = function_exists('openssl_get_cert_locations') ? (string) (openssl_get_cert_locations()['default_cert_file'] ?? '') : '';
+        $configured = (string) ini_get('curl.cainfo');
+        return array_values(array_filter(
+            ['/etc/pki/tls/certs/ca-bundle.crt', '/etc/ssl/certs/ca-certificates.crt', '/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem',
+             '/etc/ssl/cert.pem', '/usr/local/share/certs/ca-root-nss.crt'],
+            static fn (string $file) => $file !== $default && $file !== $configured && is_readable($file),
+        ));
+    }
+
     /** @param array<int, mixed> $options */
     private static function request(string $url, array $options, int $timeout, int $maxBytes): ?string
     {
@@ -55,6 +73,18 @@ final class Http
             },
         ]);
         $ok = curl_exec($ch);
+        if ($ok === false && curl_errno($ch) === CURLE_SSL_CACERT && !isset($options[CURLOPT_CAINFO])) {
+            // The certificate couldn't be checked with PHP's list: try the system's. Still checked.
+            curl_close($ch);
+            foreach (self::systemCaFiles() as $caFile) {
+                $result = self::request($url, $options + [CURLOPT_CAINFO => $caFile], $timeout, $maxBytes);
+                if ($result !== null || !str_contains((string) self::$lastError, 'certificate')) {
+                    return $result;
+                }
+            }
+            self::$lastError = 'certificaat van de site niet te controleren: de certificatenlijst van PHP op deze server is te oud of ontbreekt';
+            return null;
+        }
         $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $error = curl_errno($ch) === CURLE_OPERATION_TIMEDOUT ? "time-out na {$timeout} seconden" : curl_error($ch);
         curl_close($ch);
