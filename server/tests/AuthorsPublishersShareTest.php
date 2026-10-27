@@ -155,6 +155,17 @@ final class AuthorsPublishersShareTest extends TestCase
             ['prop' => 'died', 'value' => '2026-03-01T00:00:00Z', 'precision' => '11', 'rank' => $normal],
         ]));
         self::assertSame(['1944-05-22', '2026-03-01'], [$flanagan['born']['date'], $flanagan['died']['date']]);
+        // What Wikidata actually gave for him: only the two wrong dates. Then the
+        // description's years, not 2012.
+        $wrongOnly = Wikidata::parseAuthor($rows([
+            ['prop' => 'label', 'value' => 'John Flanagan', 'lang' => 'en'],
+            ['prop' => 'description', 'value' => 'Australian fantasy author (1944–2026)', 'lang' => 'en'],
+            ['prop' => 'description', 'value' => 'Australische schrijver (1944–2026)', 'lang' => 'nl'],
+            ['prop' => 'died', 'value' => '2012-05-11T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+            ['prop' => 'born', 'value' => '2012-05-13T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+        ]));
+        self::assertSame(['year' => 1944, 'month' => null, 'date' => null], $wrongOnly['born']);
+        self::assertSame(['year' => 2026, 'month' => null, 'date' => null], $wrongOnly['died']);
         $noDescription = Wikidata::parseAuthor($rows([
             ['prop' => 'label', 'value' => 'Iemand', 'lang' => 'en'],
             ['prop' => 'born', 'value' => '2012-05-13T00:00:00Z', 'precision' => '11', 'rank' => $normal],
