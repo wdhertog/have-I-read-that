@@ -26,12 +26,32 @@ require dirname(__DIR__) . '/autoload.php';
 if (($argv[1] ?? '') === '--author') {
     $name = (string) ($argv[2] ?? '');
     $wikidata = (new Catalog(Config::load(dirname(__DIR__) . '/.env')))->wikidata();
-    $qid = $wikidata->findAuthor($name);
-    echo 'Wikidata: ', $qid !== null ? "https://www.wikidata.org/wiki/{$qid}" : 'niets gevonden (of niet bereikbaar)', PHP_EOL;
+    $sparql = static fn (string $query): ?string => Http::get('https://query.wikidata.org/sparql?format=json&query=' . rawurlencode($query), 30);
+    echo 'Wikidata bereikbaar: ', $wikidata->reachable() ? 'ja' : 'NEE (' . Http::$lastError . ')', PHP_EOL;
+    $started = microtime(true);
+    $search = $sparql(Wikidata::authorSearchQuery(Wikidata::firstLast($name)));
+    printf('Zoeken naar "%s": %s (%.1f s)%s', $name, $search !== null ? 'antwoord' : 'MISLUKT: ' . Http::$lastError, microtime(true) - $started, PHP_EOL);
+    if ($search === null) {
+        exit(1);
+    }
+    $found = [];
+    foreach (json_decode((string) $search, true)['results']['bindings'] ?? [] as $row) {
+        $q = (string) preg_replace('#^.*/#', '', (string) ($row['item']['value'] ?? ''));
+        $found[$q][(string) ($row['name']['value'] ?? '')] = true;
+    }
+    foreach ($found as $q => $names) {
+        echo '  ', $q, ': ', implode(' / ', array_slice(array_keys($names), 0, 5)), PHP_EOL;
+    }
+    $qid = $search !== null ? Wikidata::parseAuthorSearch($search, Wikidata::firstLast($name)) : null;
+    echo 'Gekozen: ', $qid !== null ? "https://www.wikidata.org/wiki/{$qid}" : 'niemand (geen naam die precies klopt)', PHP_EOL;
     if ($qid === null) {
         exit(1);
     }
-    $json = Http::get('https://query.wikidata.org/sparql?format=json&query=' . rawurlencode(Wikidata::authorQuery($qid)));
+    $json = $sparql(Wikidata::authorQuery($qid));
+    if ($json === null) {
+        echo 'Gegevens ophalen mislukt: ', Http::$lastError, PHP_EOL;
+        exit(1);
+    }
     $precision = [9 => 'jaar', 10 => 'maand', 11 => 'dag'];
     foreach (json_decode((string) $json, true)['results']['bindings'] ?? [] as $row) {
         $prop = $row['prop']['value'] ?? '';
