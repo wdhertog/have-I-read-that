@@ -32,6 +32,10 @@ $years = static fn (?array $date) => match (true) {
     <?php endif ?>
     <form method="post" action="<?= $v->url('/author/refresh') ?>" class="inline"><?= $v->csrf() ?>
       <input type="hidden" name="name" value="<?= $v->e($name) ?>"><button class="link">opnieuw opzoeken</button></form>
+    <?php if ($profile['qid'] !== null): ?>
+      · <a href="https://www.wikidata.org/wiki/<?= $v->e($profile['qid']) ?>" target="_blank" rel="noopener">bekijk op Wikidata</a>
+      <span class="muted">(klopt er iets niet? Wikidata kun je zelf verbeteren)</span>
+    <?php endif ?>
   </div>
 </section>
 

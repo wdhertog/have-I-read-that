@@ -452,24 +452,36 @@ final class Wikidata
         $all = static fn (string $prop): array => array_values(array_unique(array_map('strval', array_merge(
             ...array_map('array_keys', array_values($values[$prop] ?? [])),
         ))));
-        $date = static function (string $prop) use ($dates): ?array {
-            $candidates = $dates[$prop] ?? [];
-            // The preferred value first, then the most precise one.
-            usort($candidates, static fn (array $a, array $b) => [$b['preferred'], $b['precision']] <=> [$a['preferred'], $a['precision']]);
-            foreach ($candidates as $candidate) {
+        // Wikidata may hold several dates, some wrong. Prefer the preferred one, then
+        // one that fits the years in the description ("Australisch schrijver
+        // (1944-2026)"), then the most precise; never a death before the birth.
+        $description = $first('description') ?? '';
+        $expected = preg_match('/\b(1\d{3}|20\d{2})\s*[-–—]\s*(1\d{3}|20\d{2})\b/u', $description, $m)
+            ? ['born' => (int) $m[1], 'died' => (int) $m[2]] : [];
+        $date = static function (string $prop, ?array $after = null) use ($dates, $expected): ?array {
+            $options = [];
+            foreach ($dates[$prop] ?? [] as $candidate) {
                 if (!preg_match('/^([+-]?\d{1,4})-(\d{2})-(\d{2})/', $candidate['value'], $m) || $candidate['precision'] < 9) {
                     continue; // decades and centuries say too little
                 }
+                $year = (int) $m[1];
                 $month = $candidate['precision'] >= 10 && $m[2] !== '00' ? (int) $m[2] : null;
                 $day = $candidate['precision'] >= 11 && $month !== null && $m[3] !== '00' ? (int) $m[3] : null;
-                return [
-                    'year' => (int) $m[1],
-                    'month' => $month,
-                    'date' => $day !== null ? sprintf('%04d-%02d-%02d', (int) $m[1], $month, $day) : null,
+                $sort = $year * 10000 + ($month ?? 1) * 100 + ($day ?? 1);
+                if ($year > (int) date('Y') || ($after !== null && $sort < $after['sort'])) {
+                    continue;
+                }
+                $options[] = [
+                    'score' => [$candidate['preferred'], isset($expected[$prop]) && $expected[$prop] === $year, $candidate['precision']],
+                    'date' => ['year' => $year, 'month' => $month, 'date' => $day !== null ? sprintf('%04d-%02d-%02d', $year, $month, $day) : null],
+                    'sort' => $sort,
                 ];
             }
-            return null;
+            usort($options, static fn (array $a, array $b) => $b['score'] <=> $a['score']);
+            return $options[0] ?? null;
         };
+        $born = $date('born');
+        $died = $date('died', $born);
         $image = $first('image');
         $wikipedia = null;
         foreach (['nlwiki' => 'nl', 'enwiki' => 'en'] as $prop => $language) {
@@ -486,8 +498,8 @@ final class Wikidata
         return [
             'name' => mb_substr($name, 0, 255),
             'description' => ($d = $first('description')) !== null ? mb_substr($d, 0, 500) : null,
-            'born' => $date('born'),
-            'died' => $date('died'),
+            'born' => $born['date'] ?? null,
+            'died' => $died['date'] ?? null,
             'birthplace' => $first('birthplace'),
             'deathplace' => $first('deathplace'),
             'countries' => array_slice($all('country'), 0, 3),
