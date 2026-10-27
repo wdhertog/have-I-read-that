@@ -1,6 +1,11 @@
 package app.haveireadthat.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -149,7 +154,7 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(book?.title ?: "") },
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Terug") }
                 },
@@ -202,7 +207,7 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
             }
             if (current.status == "reading" || current.status == "to-read") {
                 FinishCard(current, busy, settings.postByDefault) { request ->
-                    act(if (request.dnf) "Gemarkeerd als niet uitgelezen." else "Uitgelezen! 🎉") {
+                    act(if (request.dnf) "Gemarkeerd als niet uitgelezen." else "Uitgelezen!") {
                         repository.finish(current, request)
                     }
                 }
@@ -332,31 +337,71 @@ private fun ShareButton(book: Book) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Header(book: Book) {
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Cover(book, 110.dp)
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(book.title, style = MaterialTheme.typography.headlineSmall)
-            if (book.author.isNotBlank()) Text(book.author, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            book.series?.let { series ->
-                Text(
-                    series + (book.seriesNumber?.let { ", deel ${formatNumber(it)}" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Text(STATUSES[book.status] ?: book.status, style = MaterialTheme.typography.labelLarge)
-            book.rating?.let {
-                Text("${stars(it)}  ${formatRating(it)}", color = MaterialTheme.colorScheme.primary)
-            }
-            listOfNotNull(book.isbn, book.pages?.let { "$it pagina's" }, book.format)
-                .takeIf { it.isNotEmpty() }
-                ?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall) }
-            if (book.status == "reading") ProgressLine(book)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Cover(book, 180.dp) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(book.title, style = MaterialTheme.typography.displaySmall)
+        if (book.author.isNotBlank()) {
+            Text("door ${book.author}", style = MaterialTheme.typography.bodyLarge, color = Palette.textSoft)
+        }
+    }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StatusChip(book.status, big = true)
+        book.rating?.takeIf { it > 0 }?.let {
+            Stars(it, big = true)
+            Text("${formatRating(it).replace('.', ',')} van 5", color = Palette.textMuted)
+        }
+        book.series?.let { series ->
+            Text(series + (book.seriesNumber?.let { ", deel ${formatNumber(it)}" } ?: ""), color = Palette.link)
+        }
+        book.lentTo?.let { Tag("Uitgeleend aan $it") }
+    }
+    if (book.status == "reading") ProgressLine(book)
+    book.review?.let { review ->
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(Palette.surface)
+                .border(1.dp, Palette.track, MaterialTheme.shapes.medium)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(review, fontFamily = Literata, fontStyle = FontStyle.Italic, fontSize = 20.sp, lineHeight = 28.sp, color = Palette.textStrong)
+            Text("Jouw recensie", style = MaterialTheme.typography.bodySmall, color = Palette.textMuted)
         }
     }
     About(book)
-    book.review?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+    listOfNotNull(
+        book.publisher?.let { "Uitgever" to (it + (book.publishedYear?.let { y -> ", $y" } ?: "")) },
+        book.pages?.let { "Pagina’s" to "$it" },
+        book.format?.let { "Formaat" to formatLabel(it) },
+        book.isbn?.let { "ISBN" to it },
+    ).takeIf { it.isNotEmpty() }?.let { facts ->
+        Column(Modifier.fillMaxWidth()) {
+            HorizontalDivider(color = Palette.line)
+            facts.forEach { (label, value) ->
+                Column(Modifier.padding(vertical = 10.dp)) {
+                    Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp, color = Palette.textMuted)
+                    Text(value, color = Palette.text)
+                }
+                HorizontalDivider(color = Palette.line)
+            }
+        }
+    }
+}
+
+private fun formatLabel(format: String): String = when (format) {
+    "paperback" -> "Paperback"
+    "hardcover" -> "Gebonden"
+    "ebook", "digital" -> "E-book"
+    "audio" -> "Luisterboek"
+    else -> format.replaceFirstChar { it.uppercase() }
 }
 
 /** Genre, translation, first publication and the description (tap to read it all). */
@@ -390,7 +435,13 @@ private fun About(book: Book) {
 fun ProgressLine(book: Book) {
     val percent = book.progressPercent ?: return
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
+        LinearProgressIndicator(
+            progress = { percent / 100f },
+            modifier = Modifier.fillMaxWidth(),
+            color = Palette.accent,
+            trackColor = Palette.track,
+            drawStopIndicator = {},
+        )
         val pages = book.pages
         val page = book.progressPage
         Text(
@@ -409,7 +460,7 @@ private fun ProgressCard(book: Book, busy: Boolean, onSave: (ProgressRequest) ->
     var toot by rememberSaveable { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Hoe ver ben je?", style = MaterialTheme.typography.titleMedium)
+            Text("Hoe ver ben je?", style = MaterialTheme.typography.titleLarge)
             if (pages != null) {
                 OutlinedTextField(
                     value = page,
@@ -442,7 +493,7 @@ private fun StartCard(busy: Boolean, postByDefault: Boolean, again: Boolean, onS
     var toot by rememberSaveable { mutableStateOf(postByDefault) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (again) "Opnieuw lezen" else "Begin met lezen", style = MaterialTheme.typography.titleMedium)
+            Text(if (again) "Opnieuw lezen" else "Begin met lezen", style = MaterialTheme.typography.titleLarge)
             CheckRow("Post naar Mastodon", toot) { toot = it }
             Button(enabled = !busy, onClick = { onStart(toot) }) { Text("Start vandaag") }
         }
@@ -458,7 +509,7 @@ private fun FinishCard(book: Book, busy: Boolean, postByDefault: Boolean, onFini
     var toot by rememberSaveable { mutableStateOf(postByDefault) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Uitgelezen", style = MaterialTheme.typography.titleMedium)
+            Text("Uitgelezen", style = MaterialTheme.typography.titleLarge)
             Text(
                 if (rating > 0) "${stars(rating.toDouble())}  ${formatRating(rating.toDouble())}" else "Geen beoordeling",
                 color = MaterialTheme.colorScheme.primary,
@@ -493,7 +544,7 @@ private fun FinishCard(book: Book, busy: Boolean, postByDefault: Boolean, onFini
 
 @Composable
 private fun Reads(book: Book, onEdit: (Read) -> Unit, onAdd: () -> Unit) {
-    Text("Leesmomenten", style = MaterialTheme.typography.titleMedium)
+    Text("Leesmomenten", style = MaterialTheme.typography.titleLarge)
     book.reads.forEach { read ->
         Text(
             "${read.started ?: "—"}  →  ${read.finished ?: "…"}",
@@ -510,7 +561,7 @@ private fun Reads(book: Book, onEdit: (Read) -> Unit, onAdd: () -> Unit) {
 private fun Posts(book: Book) {
     if (book.posts.isEmpty()) return
     val uriHandler = LocalUriHandler.current
-    Text("Op Mastodon", style = MaterialTheme.typography.titleMedium)
+    Text("Op Mastodon", style = MaterialTheme.typography.titleLarge)
     book.posts.forEach { post ->
         val kind = when (post.kind) {
             "finished" -> "uitgelezen"
@@ -558,7 +609,7 @@ private fun isDate(value: String): Boolean = runCatching { LocalDate.parse(value
 
 @Composable
 private fun Notes(book: Book, onAdd: () -> Unit, onDelete: (Note) -> Unit) {
-    Text("Notities en citaten", style = MaterialTheme.typography.titleMedium)
+    Text("Notities en citaten", style = MaterialTheme.typography.titleLarge)
     if (book.notes.isEmpty()) {
         Text("Bewaar hier mooie zinnen of je gedachten tijdens het lezen.", style = MaterialTheme.typography.bodySmall)
     }
@@ -623,10 +674,10 @@ private fun NoteDialog(onDismiss: () -> Unit, onSave: (NewNote) -> Unit) {
 
 @Composable
 private fun Lending(book: Book, busy: Boolean, onLend: () -> Unit, onReturn: () -> Unit) {
-    Text("Uitlenen", style = MaterialTheme.typography.titleMedium)
+    Text("Uitlenen", style = MaterialTheme.typography.titleLarge)
     val lentTo = book.lentTo
     if (lentTo != null) {
-        Text("📕 Uitgeleend aan $lentTo sinds ${book.lentSince ?: "?"}.")
+        Text("Uitgeleend aan $lentTo sinds ${book.lentSince?.let { formatDate(it) } ?: "?"}.")
         Button(enabled = !busy, onClick = onReturn) { Text("Teruggekregen") }
     } else {
         OutlinedButton(enabled = !busy, onClick = onLend) { Text("Uitlenen") }

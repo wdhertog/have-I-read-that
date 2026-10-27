@@ -237,7 +237,7 @@ fun AddScreen(settings: Settings, onBack: () -> Unit, onOpen: (Int) -> Unit, sha
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             FilledTonalButton(onClick = ::scan, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                Text("📷  Scan ISBN-barcode")
+                Text("Scan ISBN-barcode")
             }
             message?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
             if (results.isNotEmpty()) {

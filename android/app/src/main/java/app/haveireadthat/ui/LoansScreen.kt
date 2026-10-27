@@ -88,7 +88,7 @@ private fun PersonCard(person: Person, onOpen: (Int) -> Unit) {
     var showHistory by rememberSaveable(person.name) { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(person.name, style = MaterialTheme.typography.titleMedium)
+            Text(person.name, style = MaterialTheme.typography.titleLarge)
             if (person.current.isEmpty()) {
                 Text("Heeft nu niets van je.", style = MaterialTheme.typography.bodySmall)
             }
@@ -111,10 +111,10 @@ private fun LoanLine(loan: Loan, onOpen: (Int) -> Unit, current: Boolean) {
             .clickable { onOpen(loan.bookId) }
             .padding(vertical = 4.dp),
     ) {
-        Text(loan.title ?: "Boek", style = MaterialTheme.typography.bodyLarge)
+        Text(loan.title ?: "Boek", style = MaterialTheme.typography.titleSmall, color = Palette.textStrong)
         Text(
-            if (current) "sinds ${loan.lentOn}" + (if (loan.days > 0) " (${loan.days} dagen)" else "") + (loan.note?.let { " · $it" } ?: "")
-            else "${loan.lentOn} – ${loan.returnedOn}",
+            if (current) "sinds ${formatDate(loan.lentOn)}" + (if (loan.days > 0) " · ${if (loan.days == 1) "1 dag" else "${loan.days} dagen"}" else "") + (loan.note?.let { " · $it" } ?: "")
+            else "${formatDate(loan.lentOn)} – ${loan.returnedOn?.let { formatDate(it) } ?: "?"}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

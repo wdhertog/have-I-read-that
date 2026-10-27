@@ -6,7 +6,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.GlanceTheme
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -24,6 +23,8 @@ import androidx.glance.layout.padding
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
+import app.haveireadthat.ui.Palette
 import app.haveireadthat.Book
 import app.haveireadthat.Goal
 import app.haveireadthat.MainActivity
@@ -42,22 +43,23 @@ class ReadingWidget : GlanceAppWidget() {
         }
         val state = repository.state()
         val reading = state.books.filter { it.status == "reading" }.take(3)
-        provideContent { GlanceTheme { Content(reading, state.goal) } }
+        provideContent { Content(reading, state.goal) }
     }
 
     @Composable
     private fun Content(reading: List<Book>, goal: Goal?) {
-        val text = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 14.sp)
-        val muted = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp)
+        // The app's own warm dark colours, not the wallpaper's.
+        val text = TextStyle(color = ColorProvider(Palette.textStrong), fontSize = 14.sp)
+        val muted = TextStyle(color = ColorProvider(Palette.textMuted), fontSize = 12.sp)
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
                 .cornerRadius(16.dp)
-                .background(GlanceTheme.colors.widgetBackground)
+                .background(ColorProvider(Palette.bg))
                 .padding(12.dp)
                 .clickable(actionStartActivity<MainActivity>()),
         ) {
-            Text("📚 Aan het lezen", style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold))
+            Text("Aan het lezen", style = TextStyle(color = ColorProvider(Palette.accent), fontSize = 14.sp, fontWeight = FontWeight.Bold))
             Spacer(GlanceModifier.height(6.dp))
             if (reading.isEmpty()) {
                 Text("Je leest nu geen boek.", style = muted)
@@ -69,8 +71,8 @@ class ReadingWidget : GlanceAppWidget() {
                     LinearProgressIndicator(
                         progress = percent / 100f,
                         modifier = GlanceModifier.fillMaxWidth().height(4.dp),
-                        color = GlanceTheme.colors.primary,
-                        backgroundColor = GlanceTheme.colors.surfaceVariant,
+                        color = ColorProvider(Palette.accent),
+                        backgroundColor = ColorProvider(Palette.track),
                     )
                     Text("$percent%", style = muted)
                 } else if (book.author.isNotBlank()) {

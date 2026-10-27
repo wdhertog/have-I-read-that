@@ -48,7 +48,8 @@ fun SetupScreen(settings: Settings, onDone: () -> Unit) {
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("📚 Have I read that?", style = MaterialTheme.typography.headlineMedium)
+        Logo(48.dp)
+        Text("Have I read that?", style = MaterialTheme.typography.displaySmall)
         Text(
             "Vul het adres van je site in en een token. Een token maak je op de site aan onder Instellingen → Android-app.",
             style = MaterialTheme.typography.bodyMedium,
