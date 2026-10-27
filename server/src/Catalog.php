@@ -28,11 +28,13 @@ final class Catalog
      */
     public function __construct(private Config $config, ?callable $get = null, ?callable $post = null)
     {
+        // Wikidata's query service can take a while on a common name: give it 30 seconds.
+        $slow = $get !== null ? \Closure::fromCallable($get) : static fn (string $url): ?string => Http::get($url, 30);
         $get = \Closure::fromCallable($get ?? [Http::class, 'get']);
         $this->hardcover = new Hardcover(\Closure::fromCallable($post ?? [Http::class, 'postJson']), $config->get('HARDCOVER_TOKEN'));
         $this->kb = new Kb($get);
         $this->google = new GoogleBooks($get, $config->get('GOOGLE_BOOKS_API_KEY'));
-        $this->wikidata = new Wikidata($get);
+        $this->wikidata = new Wikidata($slow);
     }
 
     public function wikidata(): Wikidata

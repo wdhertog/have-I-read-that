@@ -10,6 +10,9 @@ namespace App;
  */
 final class Http
 {
+    /** Why the last request failed, for bin/lookup.php ("time-out", "HTTP 429"…); null when it worked. */
+    public static ?string $lastError = null;
+
     public static function get(string $url, int $timeout = 10, int $maxBytes = 5 * 1024 * 1024): ?string
     {
         return self::request($url, [], $timeout, $maxBytes);
@@ -53,7 +56,9 @@ final class Http
         ]);
         $ok = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $error = curl_errno($ch) === CURLE_OPERATION_TIMEDOUT ? "time-out na {$timeout} seconden" : curl_error($ch);
         curl_close($ch);
-        return $ok !== false && $code === 200 ? $body : null;
+        self::$lastError = $ok !== false && $code === 200 ? null : ($code > 0 && $code !== 200 ? "HTTP {$code}" : ($error ?: 'geen verbinding'));
+        return self::$lastError === null ? $body : null;
     }
 }
