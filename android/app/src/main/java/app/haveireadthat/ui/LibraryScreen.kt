@@ -1,37 +1,48 @@
 package app.haveireadthat.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,19 +50,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.haveireadthat.Book
-import kotlinx.coroutines.launch
-import app.haveireadthat.Repository
-import app.haveireadthat.LocalState
 import app.haveireadthat.Goal
+import app.haveireadthat.LocalState
+import app.haveireadthat.Repository
 import app.haveireadthat.STATUSES
 import app.haveireadthat.Settings
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,101 +142,172 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
         )
     }
 
+    val all = books.orEmpty()
+    val counts = remember(books) { all.groupingBy { it.status }.eachCount() }
+    val chipColors = FilterChipDefaults.filterChipColors(
+        containerColor = Color.Transparent,
+        labelColor = Palette.text,
+        selectedContainerColor = Palette.accent,
+        selectedLabelColor = Palette.onAccent,
+    )
+    val borderOn = FilterChipDefaults.filterChipBorder(enabled = true, selected = true, borderColor = Palette.border, selectedBorderColor = Palette.accent)
+    val borderOff = FilterChipDefaults.filterChipBorder(enabled = true, selected = false, borderColor = Palette.border, selectedBorderColor = Palette.accent)
+    val chipBorder = { selected: Boolean -> if (selected) borderOn else borderOff }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Boeken") },
-                actions = {
-                    IconButton(onClick = onLoans) {
-                        Icon(Icons.Default.Person, contentDescription = "Uitgeleend")
-                    }
-                    IconButton(onClick = { confirmLogout = true }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Uitloggen")
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Logo()
+                        Text("Have I read that?", style = MaterialTheme.typography.titleLarge)
                     }
                 },
+                actions = {
+                    IconButton(onClick = onLoans) {
+                        Icon(Icons.Default.Person, contentDescription = "Uitgeleend", tint = Palette.textSoft)
+                    }
+                    IconButton(onClick = { confirmLogout = true }) {
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Uitloggen", tint = Palette.textSoft)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Palette.bg),
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAdd) { Icon(Icons.Default.Add, contentDescription = "Boek toevoegen") }
+            ExtendedFloatingActionButton(
+                onClick = onAdd,
+                containerColor = Palette.accent,
+                contentColor = Palette.onAccent,
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Toevoegen", style = MaterialTheme.typography.labelLarge) },
+            )
         },
     ) { padding ->
-        Column(Modifier.padding(padding)) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                placeholder = { Text("Zoek titel, auteur, tag…") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-            )
-            Row(
-                Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(selected = status == null, onClick = { status = null }, label = { Text("Alles") })
-                STATUSES.forEach { (key, label) ->
-                    FilterChip(selected = status == key, onClick = { status = key }, label = { Text(label) })
-                }
-            }
-            if (shelves.isNotEmpty()) {
-                Row(
-                    Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    shelves.forEach { name ->
-                        FilterChip(
-                            selected = shelf.equals(name, ignoreCase = true),
-                            onClick = { shelf = if (shelf.equals(name, ignoreCase = true)) null else name },
-                            label = { Text("🏷 $name") },
-                        )
-                    }
-                }
-            }
-            if (offline) {
-                Notice("Offline: je ziet de versie van ${state.updatedAt ?: "eerder"}. Wijzigingen worden verstuurd zodra je weer verbinding hebt.")
-            }
-            if (state.queue.isNotEmpty()) {
-                val n = state.queue.size
-                Notice(if (n == 1) "1 wijziging wacht op verbinding." else "$n wijzigingen wachten op verbinding.")
-            }
-            if (state.failures.isNotEmpty()) {
-                Notice(
-                    "Niet gelukt bij het versturen:\n" + state.failures.joinToString("\n"),
-                    error = true,
-                    onDismiss = {
-                        scope.launch {
-                            repository.clearFailures()
-                            state = repository.state()
-                        }
-                    },
-                )
-            }
-            state.goal?.let { GoalLine(it) }
-            error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
-            }
-            PullToRefreshBox(
-                isRefreshing = refreshing,
-                onRefresh = { reload++ },
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { reload++ },
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(150.dp),
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
-                    if (books != null && shown.isEmpty()) {
-                        item { Text("Geen boeken gevonden.", modifier = Modifier.padding(16.dp)) }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column {
+                            Text("Je boekenkast", style = MaterialTheme.typography.displaySmall)
+                            if (books != null) {
+                                Text(
+                                    listOfNotNull(
+                                        if (all.size == 1) "1 boek" else "${all.size} boeken",
+                                        "${counts["read"] ?: 0} gelezen",
+                                        counts["reading"]?.let { "$it nu aan het lezen" },
+                                    ).joinToString(" · "),
+                                    color = Palette.textMuted,
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Palette.textMuted) },
+                            placeholder = { Text("Zoek titel, auteur, tag…", color = Palette.placeholder) },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.small,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = Palette.surface,
+                                focusedContainerColor = Palette.surface,
+                                unfocusedBorderColor = Palette.border,
+                                focusedBorderColor = Palette.accent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            FilterChip(
+                                selected = status == null, onClick = { status = null },
+                                label = { Text("Alles ${all.size}") },
+                                colors = chipColors, border = chipBorder(status == null), shape = CircleShape,
+                            )
+                            STATUSES.forEach { (key, label) ->
+                                FilterChip(
+                                    selected = status == key, onClick = { status = if (status == key) null else key },
+                                    label = { Text("$label ${counts[key] ?: 0}") },
+                                    colors = chipColors, border = chipBorder(status == key), shape = CircleShape,
+                                )
+                            }
+                        }
+                        if (shelves.isNotEmpty()) {
+                            Row(
+                                Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                shelves.forEach { name ->
+                                    val selected = shelf.equals(name, ignoreCase = true)
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = { shelf = if (selected) null else name },
+                                        label = { Text(name) },
+                                        colors = chipColors, border = chipBorder(selected), shape = CircleShape,
+                                    )
+                                }
+                            }
+                        }
+                        if (offline) {
+                            Notice("Offline: je ziet de versie van ${state.updatedAt ?: "eerder"}. Wijzigingen worden verstuurd zodra je weer verbinding hebt.")
+                        }
+                        if (state.queue.isNotEmpty()) {
+                            val n = state.queue.size
+                            Notice(if (n == 1) "1 wijziging wacht op verbinding." else "$n wijzigingen wachten op verbinding.")
+                        }
+                        if (state.failures.isNotEmpty()) {
+                            Notice(
+                                "Niet gelukt bij het versturen:\n" + state.failures.joinToString("\n"),
+                                error = true,
+                                onDismiss = {
+                                    scope.launch {
+                                        repository.clearFailures()
+                                        state = repository.state()
+                                    }
+                                },
+                            )
+                        }
+                        state.goal?.let { GoalLine(it) }
+                        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        HorizontalDivider(color = Palette.line)
                     }
-                    items(shown, key = { it.id }) { book ->
-                        BookRow(book) { onOpen(book.id) }
-                        HorizontalDivider()
-                    }
+                }
+                if (books != null && shown.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { Text("Geen boeken gevonden.", color = Palette.textMuted) }
+                }
+                items(shown, key = { it.id }) { book ->
+                    BookCard(book) { onOpen(book.id) }
                 }
             }
         }
+    }
+}
+
+/** The three spines of the website's logo. */
+@Composable
+fun Logo(size: androidx.compose.ui.unit.Dp = 26.dp) {
+    Canvas(Modifier.size(size)) {
+        val u = this.size.width / 28f
+        val stroke = Stroke(width = 1.6f * u)
+        drawRoundRect(Palette.accent, topLeft = Offset(3 * u, 5 * u), size = Size(5 * u, 19 * u), cornerRadius = CornerRadius(u), style = stroke)
+        drawRoundRect(Palette.accent, topLeft = Offset(10 * u, 3 * u), size = Size(5 * u, 21 * u), cornerRadius = CornerRadius(u), style = stroke)
+        val leaning = Path().apply {
+            moveTo(17.5f * u, 6.5f * u); lineTo(22.1f * u, 5.2f * u); lineTo(26.5f * u, 22.8f * u); lineTo(21.9f * u, 24.1f * u); close()
+        }
+        drawPath(leaning, Palette.accent, style = stroke)
     }
 }
 
@@ -221,8 +315,7 @@ fun LibraryScreen(settings: Settings, onOpen: (Int) -> Unit, onAdd: () -> Unit, 
 private fun Notice(text: String, error: Boolean = false, onDismiss: (() -> Unit)? = null) {
     Row(
         Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -237,45 +330,58 @@ private fun Notice(text: String, error: Boolean = false, onDismiss: (() -> Unit)
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BookRow(book: Book, onClick: () -> Unit) {
-    Row(
+private fun BookCard(book: Book, onClick: () -> Unit) {
+    Column(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Cover(book, 44.dp)
-        Column(Modifier.weight(1f)) {
-            Text(book.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (book.author.isNotBlank()) {
-                Text(book.author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            val meta = listOfNotNull(
-                STATUSES[book.status],
-                book.series?.let { s -> s + (book.seriesNumber?.let { " #${formatNumber(it)}" } ?: "") },
-                stars(book.rating).ifEmpty { null },
-                book.lastFinished,
-                book.lentTo?.let { "📕 bij $it" },
-            )
-            Text(meta.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (book.status == "reading") ProgressLine(book)
+        BoxWithConstraints(Modifier.fillMaxWidth()) { Cover(book, maxWidth) }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            buildAnnotatedString {
+                book.seriesNumber?.takeIf { book.series != null }?.let {
+                    withStyle(SpanStyle(color = Palette.textMuted)) { append("Deel ${formatNumber(it)} · ") }
+                }
+                append(book.title)
+            },
+            style = MaterialTheme.typography.titleSmall,
+            color = Palette.textStrong,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (book.author.isNotBlank()) {
+            Text(book.author, style = MaterialTheme.typography.bodySmall, color = Palette.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            StatusChip(book.status)
+            Stars(book.rating)
+            book.lentTo?.let { Tag("bij $it") }
+        }
+        if (book.status == "reading") ProgressLine(book)
     }
 }
 
 @Composable
 private fun GoalLine(goal: Goal) {
     val target = goal.goal ?: return
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            if (goal.read >= target) "Leesdoel ${goal.year} gehaald: ${goal.read} van $target boeken 🎉"
+            if (goal.read >= target) "Leesdoel ${goal.year} gehaald: ${goal.read} van $target boeken"
             else "Leesdoel ${goal.year}: ${goal.read} van $target boeken",
             style = MaterialTheme.typography.bodyMedium,
         )
-        LinearProgressIndicator(progress = { (goal.read.toFloat() / target).coerceAtMost(1f) }, modifier = Modifier.fillMaxWidth())
+        LinearProgressIndicator(
+            progress = { (goal.read.toFloat() / target).coerceAtMost(1f) },
+            modifier = Modifier.fillMaxWidth(),
+            color = Palette.accent,
+            trackColor = Palette.track,
+            drawStopIndicator = {},
+        )
     }
 }
 

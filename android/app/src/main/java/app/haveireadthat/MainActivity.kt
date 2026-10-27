@@ -3,17 +3,11 @@ package app.haveireadthat
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,7 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -38,6 +31,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import okhttp3.OkHttpClient
 import app.haveireadthat.ui.AddScreen
+import app.haveireadthat.ui.AppTheme
 import app.haveireadthat.ui.BookScreen
 import app.haveireadthat.ui.EditScreen
 import app.haveireadthat.ui.LibraryScreen
@@ -52,7 +46,11 @@ class HaveIReadThatApp : Application(), ImageLoaderFactory {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Light icons on the status and navigation bar: the app is always dark.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         val shared = sharedText(intent)
         setContent { AppTheme { App(shared) } }
     }
@@ -138,19 +136,6 @@ fun App(shared: String? = null) {
             )
         }
     }
-}
-
-@Composable
-fun AppTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val context = LocalContext.current
-    val colors = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkColorScheme(primary = Color(0xFF9B85FF))
-        else -> lightColorScheme(primary = Color(0xFF6D4AFF))
-    }
-    MaterialTheme(colorScheme = colors, content = content)
 }
 
 /**
