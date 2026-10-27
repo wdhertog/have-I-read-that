@@ -34,9 +34,14 @@ if (($argv[1] ?? '') === '--author') {
         foreach (Http::certificateSetup() as $label => $value) {
             echo '  ', str_pad($label, 18), $value, PHP_EOL;
         }
-        echo PHP_EOL, 'De website zelf draait vaak op een andere PHP dan de opdrachtregel. Probeer de PHP van de website',
-            PHP_EOL, '(bijv. /usr/local/php83/bin/php of /opt/cpanel/ea-php83/root/usr/bin/php), of geef een lijst mee:',
-            PHP_EOL, '  php -d curl.cainfo=/pad/naar/cacert.pem bin/lookup.php --author "Naam"', PHP_EOL, PHP_EOL;
+        if (PHP_OS_FAMILY === 'Windows') {
+            echo PHP_EOL, 'PHP voor Windows heeft geen eigen certificatenlijst. Download cacert.pem van https://curl.se/docs/caextract.html',
+                PHP_EOL, 'en zet in ' . (php_ini_loaded_file() ?: 'php.ini') . ': curl.cainfo = "C:\\php\\cacert.pem" (met het pad waar je hem neerzet).', PHP_EOL, PHP_EOL;
+        } else {
+            echo PHP_EOL, 'De website zelf draait vaak op een andere PHP dan de opdrachtregel. Probeer de PHP van de website',
+                PHP_EOL, '(bijv. /usr/local/php83/bin/php of /opt/cpanel/ea-php83/root/usr/bin/php), of geef een lijst mee:',
+                PHP_EOL, '  php -d curl.cainfo=/pad/naar/cacert.pem bin/lookup.php --author "Naam"', PHP_EOL, PHP_EOL;
+        }
     }
     $started = microtime(true);
     $search = $sparql(Wikidata::authorSearchQuery(Wikidata::firstLast($name)));
