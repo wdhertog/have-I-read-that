@@ -33,48 +33,29 @@ android/   Kotlin/Jetpack Compose-app die met de API praat
 
 ## Server installeren
 
-### Met Docker (aanbevolen)
-
-```sh
-cd server
-cp .env.example .env      # vul minstens APP_PASSWORD en DB_PASSWORD in
-docker compose up -d --build
-```
-
-Dit start PHP/Apache en MariaDB. De database-tabellen worden bij het starten
-automatisch aangemaakt of bijgewerkt. De site luistert op `127.0.0.1:8080`; zet er
-een reverse proxy met HTTPS voor, bijvoorbeeld met Caddy:
-
-```
-boeken.example.nl {
-    reverse_proxy 127.0.0.1:8080
-}
-```
-
-Backups: `docker compose exec db mariadb-dump -u books -p books > backup.sql`.
-
-Docker vertrouwt standaard `X-Forwarded-For` van het Docker-netwerk
-(`TRUSTED_PROXIES=172.16.0.0/12`), zodat de inlogbeperking per echte bezoeker telt.
-Je reverse proxy moet die header dus zetten (Caddy en de nginx-config hieronder doen dat).
-
 ### Op webhosting met `public_html` (DirectAdmin, cPanel, Plesk)
 
 Composer en SSH zijn niet nodig.
 
 1. Maak in het hostingpaneel een MySQL-database met een gebruiker aan.
-2. Upload de **inhoud** van de map `server/` naar de `public_html` van je
-   (sub)domein, dus `public_html/public`, `public_html/src`, `public_html/.htaccess`, enzovoort.
-   Vergeet het verborgen bestand `.htaccess` niet.
-3. Kopieer `.env.example` naar `.env` in `public_html` en vul het wachtwoord en
-   de databasegegevens in (`DB_HOST` is meestal `localhost`).
+2. Upload de **inhoud** van de map `server/` naar de map waar de `public_html` van je
+   (sub)domein in staat. De map `public_html/` uit de repo valt dan samen met die van
+   je hosting; `src/`, `templates/` en `.env` komen ernaast te staan, buiten bereik van
+   de browser.
+3. Kopieer `.env.example` naar `.env` in die map (naast `public_html`) en vul het
+   wachtwoord en de databasegegevens in (`DB_HOST` is meestal `localhost`).
 4. Zet PHP in het paneel op 8.1 of nieuwer.
 5. Open de site: de database-tabellen worden bij het eerste bezoek aangemaakt.
 
-De `.htaccess` in de hoofdmap stuurt alles naar `public/`, zodat `.env` en de
-code niet via de browser op te vragen zijn. Krijg je een foutmelding, zet dan
-tijdelijk `APP_DEBUG=true` in `.env` om de oorzaak te zien.
+Bijwerken: upload de inhoud van `server/` opnieuw en overschrijf de bestanden; je
+`.env` en de map `var/` blijven staan. Krijg je een foutmelding, zet dan tijdelijk
+`APP_DEBUG=true` in `.env` om de oorzaak te zien.
 
-### Zonder Docker (nginx/Apache + PHP-FPM + MySQL)
+Kun je alleen ín `public_html` uploaden? Zet de inhoud van `server/` daar dan in,
+inclusief het verborgen bestand `.htaccess`: dat stuurt alles door naar de
+`public_html/` daarbinnen, zodat `.env` en de code niet via de browser op te vragen zijn.
+
+### Op een eigen server (nginx/Apache + PHP-FPM + MySQL)
 
 Vereist PHP 8.1+ met `pdo_mysql`, `curl` en `mbstring`, en Composer.
 
@@ -86,11 +67,11 @@ mysql -e "CREATE DATABASE books CHARACTER SET utf8mb4; CREATE USER 'books'@'loca
 php bin/migrate.php       # optioneel: gebeurt anders bij het eerste bezoek
 ```
 
-Laat de webserver naar `server/public` wijzen en stuur alle verzoeken die geen
+Laat de webserver naar `server/public_html` wijzen en stuur alle verzoeken die geen
 bestand zijn naar `index.php`. Voor Apache staat er al een `.htaccess`. Voor nginx:
 
 ```nginx
-root /var/www/have-i-read-that/server/public;
+root /var/www/have-i-read-that/server/public_html;
 location / { try_files $uri /index.php$is_args$args; }
 location ~ \.php$ {
     include fastcgi_params;
@@ -353,6 +334,6 @@ cd server
 composer install
 cp .env.example .env
 php bin/migrate.php
-php -S 127.0.0.1:8080 -t public public/index.php
+php -S 127.0.0.1:8080 -t public_html public_html/index.php
 vendor/bin/phpunit        # integratietests gebruiken database books_test (zie phpunit.xml)
 ```

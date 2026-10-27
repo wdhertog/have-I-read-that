@@ -1,11 +1,11 @@
-# For hosting where you upload the contents of server/ straight into public_html:
-# every request is served from public/, so nothing else in this folder is reachable.
+# For hosting where you can only upload the contents of server/ into the web root:
+# every request is served from public_html/, so nothing else in this folder is reachable.
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^(.*)$ public/$1 [L]
+    RewriteRule ^(.*)$ public_html/$1 [L]
 </IfModule>
 
 # Belt and braces in case rewriting is off.
-<FilesMatch "^(\.env.*|composer\.(json|lock)|phpunit\.xml|docker-compose\.yml|Dockerfile)$">
+<FilesMatch "^(\.env.*|composer\.(json|lock)|phpunit\.xml)$">
     Require all denied
 </FilesMatch>
