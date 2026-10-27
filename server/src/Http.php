@@ -106,11 +106,19 @@ final class Http
         ]);
         $ok = curl_exec($ch);
         // 60: the list doesn't know the site's root; 77: the configured list can't be read.
-        if ($ok === false && in_array(curl_errno($ch), [CURLE_SSL_CACERT, CURLE_SSL_CACERT_BADFILE], true) && !isset($options[CURLOPT_CAINFO])) {
+        if ($ok === false && in_array(curl_errno($ch), [CURLE_SSL_CACERT, CURLE_SSL_CACERT_BADFILE], true)
+            && !isset($options[CURLOPT_CAINFO]) && !isset($options[CURLOPT_SSL_OPTIONS])) {
             // The certificate couldn't be checked with PHP's list: try the system's. Still checked.
             curl_close($ch);
             foreach (self::systemCaFiles() as $caFile) {
                 $result = self::request($url, $options + [CURLOPT_CAINFO => $caFile], $timeout, $maxBytes);
+                if ($result !== null || !str_contains((string) self::$lastError, 'certificate')) {
+                    return $result;
+                }
+            }
+            // PHP for Windows comes without a list: use the certificates Windows itself trusts.
+            if (PHP_OS_FAMILY === 'Windows' && defined('CURLSSLOPT_NATIVE_CA')) {
+                $result = self::request($url, $options + [CURLOPT_SSL_OPTIONS => CURLSSLOPT_NATIVE_CA], $timeout, $maxBytes);
                 if ($result !== null || !str_contains((string) self::$lastError, 'certificate')) {
                     return $result;
                 }
