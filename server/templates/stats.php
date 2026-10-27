@@ -1,6 +1,20 @@
 <?php /** @var App\View $v */ ?>
+<header class="page-head">
+  <div>
+    <h1>Statistieken</h1>
+    <p class="lead">Wat je las in <?= $year ?>, en de jaren ervoor.</p>
+  </div>
+  <?php if (count($years) > 1): ?>
+  <nav class="filters" aria-label="Jaar">
+    <?php foreach (array_slice($years, 0, 6) as $y): ?>
+      <a class="pill small" href="<?= $v->url('/stats', ['year' => $y['year']]) ?>"<?= (int) $y['year'] === $year ? ' aria-current="true"' : '' ?>><?= (int) $y['year'] ?></a>
+    <?php endforeach ?>
+  </nav>
+  <?php endif ?>
+</header>
+
 <section class="card">
-  <h1>Leesdoel <?= $year ?></h1>
+  <h2>Leesdoel <?= $year ?></h2>
   <?= $v->partial('_goal', ['goal' => $goal]) ?>
   <form method="post" action="<?= $v->url('/stats/goal') ?>" class="row">
     <?= $v->csrf() ?>
@@ -25,7 +39,7 @@
 <?php endif ?>
 
 <section class="card">
-  <h1>Gelezen per jaar</h1>
+  <h2>Gelezen per jaar</h2>
   <?php if (!$years): ?><p class="muted">Nog geen uitgelezen boeken met een datum.</p><?php endif ?>
   <table class="bars">
     <?php foreach ($years as $y): ?>
@@ -34,7 +48,7 @@
       <td class="bar"><span data-width="<?= round(100 * $y['books'] / $maxBooks, 1) ?>"></span></td>
       <td><?= $y['books'] ?> <?= $y['books'] === 1 ? 'boek' : 'boeken' ?></td>
       <td class="muted"><?= $y['pages'] ? number_format($y['pages'], 0, ',', '.') . ' pag.' : '' ?></td>
-      <td class="muted"><?= $y['avg_rating'] ? '⌀ ' . $v->rating($y['avg_rating']) . ' ★' : '' ?></td>
+      <td class="muted"><?= $y['avg_rating'] ? '⌀ ' . $v->rating($y['avg_rating']) . ' <span class="star" aria-hidden="true">★</span>' : '' ?></td>
     </tr>
     <?php endforeach ?>
   </table>
@@ -45,8 +59,8 @@
   <h2>Gelezen in <?= $year ?></h2>
   <div class="shelf">
     <?php foreach ($books as $b): ?>
-      <a href="<?= $v->url('/books/' . $b['id']) ?>" title="<?= $v->e("{$b['title']} — {$b['author']} ({$b['finished']})") ?>">
-        <?= $v->partial('_cover', ['b' => $b, 'size' => 'M']) ?>
+      <a class="plain" href="<?= $v->url('/books/' . $b['id']) ?>" title="<?= $v->e("{$b['title']} — {$b['author']} ({$b['finished']})") ?>">
+        <?= $v->partial('_cover', ['b' => $b, 'size' => 'S']) ?>
       </a>
     <?php endforeach ?>
   </div>
@@ -122,7 +136,7 @@
 <section class="card">
   <h2>Gelezen per taal</h2>
   <p class="muted">De oorspronkelijke taal; tussen haakjes hoeveel je daarvan in vertaling las.</p>
-  <ul>
+  <ul class="ranked">
     <?php foreach ($languages as $l): ?>
       <li><?= $v->e(App\Language::label($l['language'])) ?>: <?= $l['books'] ?> <?= $l['books'] === 1 ? 'boek' : 'boeken' ?><?= $l['translated'] ? ' <span class="muted">(' . $l['translated'] . ' vertaald)</span>' : '' ?></li>
     <?php endforeach ?>
@@ -134,7 +148,7 @@
 <?php if ($genres): ?>
 <section class="card">
   <h2>Meest gelezen genres</h2>
-  <ol><?php foreach ($genres as $genre => $n): ?><li><a href="<?= $v->url('/books', ['q' => $genre]) ?>"><?= $v->e($genre) ?></a> <span class="muted">(<?= $n ?>)</span></li><?php endforeach ?></ol>
+  <ol class="ranked"><?php foreach ($genres as $genre => $n): ?><li><a href="<?= $v->url('/books', ['q' => $genre]) ?>"><?= $v->e($genre) ?></a> <span class="muted"><?= $n ?></span></li><?php endforeach ?></ol>
 </section>
 <?php endif ?>
 </div>
@@ -143,7 +157,7 @@
 <?php if ($topAuthors): ?>
 <section class="card">
   <h2>Meest gelezen auteurs</h2>
-  <ol><?php foreach ($topAuthors as $a): ?><li><a href="<?= $v->url('/author', ['name' => App\Authors::names($a['author'])[0] ?? $a['author']]) ?>"><?= $v->e($a['author']) ?></a> <span class="muted">(<?= $a['n'] ?>)</span></li><?php endforeach ?></ol>
+  <ol class="ranked"><?php foreach ($topAuthors as $a): ?><li><a href="<?= $v->url('/author', ['name' => App\Authors::names($a['author'])[0] ?? $a['author']]) ?>"><?= $v->e($a['author']) ?></a> <span class="muted"><?= $a['n'] ?></span></li><?php endforeach ?></ol>
   <p><a href="<?= $v->url('/authors') ?>">Alle auteurs</a> · <a href="<?= $v->url('/publishers') ?>">Uitgevers</a></p>
 </section>
 <?php endif ?>

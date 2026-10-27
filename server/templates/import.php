@@ -1,6 +1,12 @@
 <?php /** @var App\View $v */ ?>
+<header class="page-head">
+  <div>
+    <h1>Import &amp; export</h1>
+    <p class="lead">Haal je StoryGraph-historie binnen, vul gegevens aan uit de catalogi en neem een back-up mee.</p>
+  </div>
+</header>
 <section class="card">
-  <h1>StoryGraph-historie importeren</h1>
+  <h2>StoryGraph-historie importeren</h2>
   <ol>
     <li>Ga in StoryGraph naar <em>Manage Account → Manage Your Data → Export StoryGraph Library</em>.</li>
     <li>Download het CSV-bestand zodra het klaar is.</li>
@@ -10,7 +16,7 @@
   <form method="post" enctype="multipart/form-data" class="row">
     <?= $v->csrf() ?>
     <input type="file" name="file" accept=".csv,text/csv" required>
-    <button>Voorbeeld bekijken</button>
+    <button class="primary">Voorbeeld bekijken</button>
   </form>
 </section>
 
@@ -72,6 +78,6 @@
       <?php foreach ($result['updated'] as $t => $fields): ?><li><?= $v->e($t) ?>: <span class="muted"><?= $v->e(implode(', ', $fields)) ?></span></li><?php endforeach ?>
     </ul></details>
   <?php endif ?>
-  <p><a href="<?= $v->url('/books') ?>">Naar je boeken →</a></p>
+  <p><a class="button secondary" href="<?= $v->url('/books') ?>">Naar je boeken</a></p>
 </section>
 <?php endif ?>

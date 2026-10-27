@@ -113,7 +113,7 @@ XML;
 
         $page = $this->app->handle(new Request('GET', '/loans'))->body;
         self::assertStringContainsString('met boekenlegger', $page);
-        self::assertStringContainsString('📕 bij Anna', $this->app->handle(new Request('GET', '/books'))->body);
+        self::assertStringContainsString('<span class="badge lent">bij Anna</span>', $this->app->handle(new Request('GET', '/books'))->body);
 
         $this->app->auth->logout();
         self::assertStringNotContainsString('Anna', $this->app->handle(new Request('GET', "/boek/{$a}"))->body, 'never public');
@@ -417,7 +417,7 @@ XML;
         self::assertSame(['jeugd', 'en', 1998, "Wiebe Buddingh'"], [$book['genre'], $book['original_language'], $book['first_published'], $book['translator']]);
 
         $page = $this->app->handle(new Request('GET', "/books/{$id}"))->body;
-        self::assertStringContainsString('<dd>Engels</dd>', $page);
+        self::assertStringContainsString('Harry Potter and the Chamber of Secrets · Engels</dd>', $page);
         self::assertStringContainsString('is het tweede boek.', $page);
         self::assertStringContainsString('Wiebe Buddingh&#039;', $page);
         self::assertSame([$id], array_column($this->app->books->list(null, 'Buddingh'), 'id'), 'search finds the translator');

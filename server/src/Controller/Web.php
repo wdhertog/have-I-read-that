@@ -103,8 +103,13 @@ final class Web
         $status = $request->query('status');
         $q = $request->query('q');
         $shelf = $request->query('shelf');
+        $books = $this->app->books->list($status ?: null, $q, null, $shelf ?: null);
+        // Covers load as they come into view; still, show them in portions.
+        $shown = max(60, min(5000, (int) $request->query('n')));
         return $this->app->render('books', [
-            'books' => $this->app->books->list($status ?: null, $q, null, $shelf ?: null),
+            'books' => array_slice($books, 0, $shown),
+            'total' => count($books),
+            'shown' => $shown,
             'counts' => $this->app->books->counts(),
             'status' => $status,
             'q' => $q,
@@ -292,8 +297,15 @@ final class Web
     public function collections(Request $request): Response
     {
         $series = $request->query('series');
+        $sort = $request->query('sort') === 'count' ? 'count' : 'name';
+        $shelves = $this->app->books->shelves();
+        if ($sort === 'count') {
+            usort($shelves, static fn (array $a, array $b) => [$b['count'], $a['name']] <=> [$a['count'], $b['name']]);
+        }
         return $this->app->render('collections', [
-            'shelves' => $this->app->books->shelves(),
+            'view' => $request->query('view') === 'series' ? 'series' : 'shelves',
+            'sort' => $sort,
+            'shelves' => $shelves,
             'series' => $this->app->books->seriesList(),
             'current' => $series,
             'seriesBooks' => $series !== '' ? $this->app->books->seriesBooks($series) : [],

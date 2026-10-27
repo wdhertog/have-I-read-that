@@ -120,8 +120,8 @@ final class StepSixTest extends TestCase
                 'series' => 'De Toren', 'series_number' => $n]);
         }
         self::assertSame(['Deel een', 'Novelle', 'Deel twee'], array_column($this->app->books->seriesBooks('De Toren'), 'title'));
-        self::assertSame([['name' => 'De Toren', 'books' => 3, 'read' => 1]], $this->app->books->seriesList());
-        self::assertStringContainsString('Deel 1,5: Novelle', $this->get('/collections', ['series' => 'De Toren'])->body);
+        self::assertSame([['name' => 'De Toren', 'books' => 3, 'read' => 1, 'author' => '']], $this->app->books->seriesList());
+        self::assertStringContainsString('Deel 1,5 · </span>Novelle', $this->get('/collections', ['series' => 'De Toren'])->body);
         self::assertSame(422, $this->post('/books/add', ['title' => 'X', 'series_number' => 'drie'])->status);
     }
 

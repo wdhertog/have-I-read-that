@@ -69,3 +69,40 @@ document.querySelectorAll('[data-whatsapp]').forEach((link) => {
     link.href = 'https://wa.me/?text=' + encodeURIComponent(shareText(link.dataset.whatsapp));
   });
 });
+
+// The account menu in the header: open and close, also with Escape or a click elsewhere.
+document.querySelectorAll('[data-menu]').forEach((button) => {
+  const menu = document.getElementById(button.dataset.menu);
+  if (!menu) return;
+  const setOpen = (open) => {
+    menu.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  };
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setOpen(menu.hidden);
+    if (!menu.hidden) {
+      const first = menu.querySelector('a, button');
+      if (first) first.focus();
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (!menu.hidden && !menu.contains(event.target)) setOpen(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !menu.hidden) {
+      setOpen(false);
+      button.focus();
+    }
+  });
+});
+
+// Shelf cards: the pencil opens the rename form underneath.
+document.querySelectorAll('.shelf-card details').forEach((details) => {
+  const form = details.closest('.shelf-card').querySelector('form.rename');
+  if (!form) return;
+  details.addEventListener('toggle', () => {
+    form.hidden = !details.open;
+    if (details.open) form.querySelector('input[name=to]').focus();
+  });
+});

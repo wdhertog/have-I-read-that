@@ -261,9 +261,9 @@ final class Books
      */
     public function seriesList(): array
     {
-        return array_map(static fn (array $r) => ['name' => $r['series'], 'books' => (int) $r['books'], 'read' => (int) $r['read']],
+        return array_map(static fn (array $r) => ['name' => $r['series'], 'books' => (int) $r['books'], 'read' => (int) $r['read'], 'author' => (string) $r['author']],
             $this->query(
-                "SELECT series, COUNT(*) AS books, SUM(status = 'read') AS `read` FROM books
+                "SELECT series, COUNT(*) AS books, SUM(status = 'read') AS `read`, MIN(author) AS author FROM books
                  WHERE series IS NOT NULL AND series != '' GROUP BY series ORDER BY series",
             )->fetchAll());
     }

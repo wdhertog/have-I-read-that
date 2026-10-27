@@ -3,19 +3,26 @@
 $val = static fn (string $key) => $v->e($book[$key] ?? '');
 $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
 ?>
+<?= $edit ? $v->partial('_back', ['href' => $v->url("/books/{$id}"), 'label' => (string) ($book['title'] ?? 'Terug')]) : $v->partial('_back', ['href' => $v->url('/books'), 'label' => 'Je boekenkast']) ?>
+<header class="page-head">
+  <div>
+    <h1><?= $edit ? 'Boek bewerken' : 'Boek toevoegen' ?></h1>
+    <?php if (!$edit): ?><p class="lead">Zoek het op, of vul het zelf in. Scannen van het ISBN gaat met de Android-app.</p><?php endif ?>
+  </div>
+</header>
 <?php if (!$edit): ?>
 <section class="card">
   <h2>Zoeken bij Open Library</h2>
   <form method="get" class="row">
     <input type="search" name="q" value="<?= $v->e($q) ?>" placeholder="Titel, auteur of ISBN" autofocus>
-    <button>Zoek</button>
+    <button class="secondary">Zoek</button>
   </form>
   <?php if ($results !== null): ?>
     <?php if (!$results): ?><p class="muted">Niets gevonden — vul het formulier hieronder handmatig in.</p><?php endif ?>
     <ul class="results">
       <?php foreach ($results as $r): ?>
       <li><a href="<?= $v->url('/books/add', ['title' => $r['title'], 'author' => $r['author'], 'isbn' => $r['isbn'], 'pages' => $r['pages']]) ?>">
-        <strong><?= $v->e($r['title']) ?></strong> — <?= $v->e($r['author']) ?> <?php if ($r['year']): ?><span class="muted">(<?= $r['year'] ?>)</span><?php endif ?>
+        <strong><?= $v->e($r['title']) ?></strong> <span class="muted"><?= $v->e($r['author']) ?><?= $r['year'] ? ' · ' . (int) $r['year'] : '' ?></span>
       </a></li>
       <?php endforeach ?>
     </ul>
@@ -32,7 +39,7 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
 <?php endif ?>
 
 <section class="card">
-  <h2><?= $edit ? 'Boek bewerken' : 'Boek toevoegen' ?></h2>
+  <?php if (!$edit): ?><h2>Gegevens</h2><?php endif ?>
   <form method="post" action="<?= $v->url($edit ? "/books/{$id}/edit" : '/books/add') ?>" class="grid" <?= $edit ? 'enctype="multipart/form-data"' : '' ?>>
     <?= $v->csrf() ?>
     <label class="wide">Titel <input name="title" value="<?= $val('title') ?>" required></label>
@@ -43,7 +50,7 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
       <select name="format">
         <option value="">—</option>
         <?php foreach (App\Books::FORMATS as $f): ?>
-          <option value="<?= $f ?>" <?= ($book['format'] ?? '') === $f ? 'selected' : '' ?>><?= $f ?></option>
+          <option value="<?= $f ?>" <?= ($book['format'] ?? '') === $f ? 'selected' : '' ?>><?= $v->e($v->format($f)) ?></option>
         <?php endforeach ?>
       </select>
     </label>
@@ -79,7 +86,7 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
     </details>
     <label class="check"><input type="checkbox" name="owned" <?= $owned ? 'checked' : '' ?>> In bezit</label>
     <?php if ($edit): ?>
-      <label class="wide">Eigen omslag (JPEG, PNG of WebP) <input type="file" name="cover" accept="image/jpeg,image/png,image/webp"></label>
+      <label class="wide" id="omslag">Eigen omslag (JPEG, PNG of WebP) <input type="file" name="cover" accept="image/jpeg,image/png,image/webp"></label>
       <label class="check"><input type="checkbox" name="remove_cover"> Eigen omslag verwijderen (dan weer die van Open Library)</label>
     <?php endif ?>
     <?php if (!empty($duplicate)): ?>
@@ -88,6 +95,7 @@ $owned = in_array($book['owned'] ?? null, [true, 1, '1', 'on'], true);
     <?php if (!$edit): ?>
       <label class="check"><input type="checkbox" name="toot" <?= $postByDefault ? 'checked' : '' ?>> Post naar Mastodon (bij “Aan het lezen” of “Gelezen”)</label>
     <?php endif ?>
-    <div class="wide"><button>Opslaan</button></div>
+    <div class="wide actions"><button>Opslaan</button>
+      <a class="button secondary" href="<?= $v->url($edit ? "/books/{$id}" : '/books') ?>">Annuleren</a></div>
   </form>
 </section>

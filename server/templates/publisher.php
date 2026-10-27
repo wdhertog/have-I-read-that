@@ -1,9 +1,19 @@
 <?php /** @var App\View $v */ ?>
-<p><a href="<?= $v->url('/publishers') ?>">← Alle uitgevers</a></p>
-<section class="card">
-  <h1><?= $v->e($name) ?></h1>
-  <?php if ($stats): ?>
-    <p><?= $stats['books'] ?> <?= $stats['books'] === 1 ? 'boek' : 'boeken' ?>, waarvan <?= $stats['read'] ?> gelezen<?= $stats['pages'] ? ' (' . number_format($stats['pages'], 0, ',', '.') . " pagina's)" : '' ?><?= $stats['rating'] !== null ? ', gemiddeld ' . $v->rating($stats['rating']) . ' ★' : '' ?>.</p>
-  <?php endif ?>
-  <?= $v->partial('_book_rows', ['books' => $books]) ?>
-</section>
+<?= $v->partial('_back', ['href' => $v->url('/publishers'), 'label' => 'Alle uitgevers']) ?>
+<header class="page-head">
+  <div>
+    <p class="kicker">Uitgever</p>
+    <h1><?= $v->e($name) ?></h1>
+  </div>
+</header>
+<?php if ($stats): ?>
+<div class="statband">
+  <div><strong><?= $stats['books'] ?></strong><span><?= $stats['books'] === 1 ? 'boek' : 'boeken' ?> in je kast</span></div>
+  <div><strong><?= $stats['read'] ?></strong><span>gelezen</span></div>
+  <div><strong><?= number_format((int) $stats['pages'], 0, ',', '.') ?></strong><span>pagina’s gelezen</span></div>
+  <div><strong><?= $stats['rating'] !== null ? $v->rating($stats['rating']) . ' <span class="star" aria-hidden="true">★</span>' : '–' ?></strong><span>gemiddelde waardering</span></div>
+</div>
+<?php endif ?>
+<ul class="book-grid">
+  <?php foreach ($books as $b): ?><li><?= $v->partial('_book_card', ['b' => $b]) ?></li><?php endforeach ?>
+</ul>
