@@ -453,11 +453,18 @@ final class Wikidata
             ...array_map('array_keys', array_values($values[$prop] ?? [])),
         ))));
         // Wikidata may hold several dates, some wrong. Prefer the preferred one, then
-        // one that fits the years in the description ("Australisch schrijver
-        // (1944-2026)"), then the most precise; never a death before the birth.
-        $description = $first('description') ?? '';
-        $expected = preg_match('/\b(1\d{3}|20\d{2})\s*[-–—]\s*(1\d{3}|20\d{2})\b/u', $description, $m)
-            ? ['born' => (int) $m[1], 'died' => (int) $m[2]] : [];
+        // the most precise; never a death before the birth. When the description gives
+        // the years ("Australisch schrijver (1944-2026)"), a date more than a year off
+        // is a mistake, and without a fitting date the description's year is shown.
+        $expected = [];
+        foreach (array_keys($values['description'] ?? []) as $lang) {
+            foreach (array_keys($values['description'][$lang]) as $description) {
+                if (!$expected && preg_match('/\b(1\d{3}|20\d{2})\s*[-–—]\s*(1\d{3}|20\d{2})\b/u', (string) $description, $m)
+                    && (int) $m[2] >= (int) $m[1] && (int) $m[2] - (int) $m[1] <= 120) {
+                    $expected = ['born' => (int) $m[1], 'died' => (int) $m[2]];
+                }
+            }
+        }
         $date = static function (string $prop, ?array $after = null) use ($dates, $expected): ?array {
             $options = [];
             foreach ($dates[$prop] ?? [] as $candidate) {
@@ -468,7 +475,8 @@ final class Wikidata
                 $month = $candidate['precision'] >= 10 && $m[2] !== '00' ? (int) $m[2] : null;
                 $day = $candidate['precision'] >= 11 && $month !== null && $m[3] !== '00' ? (int) $m[3] : null;
                 $sort = $year * 10000 + ($month ?? 1) * 100 + ($day ?? 1);
-                if ($year > (int) date('Y') || ($after !== null && $sort < $after['sort'])) {
+                if ($year > (int) date('Y') || ($after !== null && $sort < $after['sort'])
+                    || (isset($expected[$prop]) && abs($expected[$prop] - $year) > 1)) {
                     continue;
                 }
                 $options[] = [
@@ -478,6 +486,9 @@ final class Wikidata
                 ];
             }
             usort($options, static fn (array $a, array $b) => $b['score'] <=> $a['score']);
+            if ($options === [] && isset($expected[$prop])) {
+                return ['date' => ['year' => $expected[$prop], 'month' => null, 'date' => null], 'sort' => $expected[$prop] * 10000 + 101];
+            }
             return $options[0] ?? null;
         };
         $born = $date('born');
