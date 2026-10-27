@@ -27,7 +27,17 @@ if (($argv[1] ?? '') === '--author') {
     $name = (string) ($argv[2] ?? '');
     $wikidata = (new Catalog(Config::load(dirname(__DIR__) . '/.env')))->wikidata();
     $sparql = static fn (string $query): ?string => Http::get('https://query.wikidata.org/sparql?format=json&query=' . rawurlencode($query), 30);
-    echo 'Wikidata bereikbaar: ', $wikidata->reachable() ? 'ja' : 'NEE (' . Http::$lastError . ')', PHP_EOL;
+    $reachable = $wikidata->reachable();
+    echo 'Wikidata bereikbaar: ', $reachable ? 'ja' : 'NEE (' . Http::$lastError . ')', PHP_EOL;
+    if (!$reachable && str_contains((string) Http::$lastError, 'certificaat')) {
+        echo PHP_EOL, 'Zo controleert deze PHP certificaten:', PHP_EOL;
+        foreach (Http::certificateSetup() as $label => $value) {
+            echo '  ', str_pad($label, 18), $value, PHP_EOL;
+        }
+        echo PHP_EOL, 'De website zelf draait vaak op een andere PHP dan de opdrachtregel. Probeer de PHP van de website',
+            PHP_EOL, '(bijv. /usr/local/php83/bin/php of /opt/cpanel/ea-php83/root/usr/bin/php), of geef een lijst mee:',
+            PHP_EOL, '  php -d curl.cainfo=/pad/naar/cacert.pem bin/lookup.php --author "Naam"', PHP_EOL, PHP_EOL;
+    }
     $started = microtime(true);
     $search = $sparql(Wikidata::authorSearchQuery(Wikidata::firstLast($name)));
     printf('Zoeken naar "%s": %s (%.1f s)%s', $name, $search !== null ? 'antwoord' : 'MISLUKT: ' . Http::$lastError, microtime(true) - $started, PHP_EOL);

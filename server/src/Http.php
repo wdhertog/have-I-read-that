@@ -33,22 +33,54 @@ final class Http
         ], $timeout, 5 * 1024 * 1024);
     }
 
+    /** Where Linux and BSD systems keep their list of trusted certificates. */
+    private const CA_FILES = [
+        '/etc/pki/tls/certs/ca-bundle.crt', '/etc/ssl/certs/ca-certificates.crt', '/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem',
+        '/etc/ssl/cert.pem', '/etc/ssl/ca-bundle.pem', '/etc/pki/tls/cacert.pem', '/usr/share/ssl/certs/ca-bundle.crt',
+        '/usr/local/share/certs/ca-root-nss.crt', '/usr/local/etc/openssl/cert.pem',
+    ];
+
     /**
      * The system's own certificate lists, in the usual places. Some hosts' PHP (often
-     * the command line) has none configured, or an outdated one that doesn't know the
-     * root of a site's certificate ("unable to get local issuer certificate").
+     * the command line) has none configured, one that doesn't exist, or an outdated
+     * one that doesn't know the root of a site's certificate.
      *
      * @return list<string>
      */
     private static function systemCaFiles(): array
     {
-        $default = function_exists('openssl_get_cert_locations') ? (string) (openssl_get_cert_locations()['default_cert_file'] ?? '') : '';
         $configured = (string) ini_get('curl.cainfo');
-        return array_values(array_filter(
-            ['/etc/pki/tls/certs/ca-bundle.crt', '/etc/ssl/certs/ca-certificates.crt', '/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem',
-             '/etc/ssl/cert.pem', '/usr/local/share/certs/ca-root-nss.crt'],
-            static fn (string $file) => $file !== $default && $file !== $configured && is_readable($file),
-        ));
+        $candidates = [(string) getenv('SSL_CERT_FILE'), (string) ini_get('openssl.cafile'), self::opensslDefault(), ...self::CA_FILES];
+        return array_values(array_unique(array_filter(
+            $candidates,
+            static fn (string $file) => $file !== '' && $file !== $configured && is_file($file) && is_readable($file),
+        )));
+    }
+
+    private static function opensslDefault(): string
+    {
+        return function_exists('openssl_get_cert_locations') ? (string) (openssl_get_cert_locations()['default_cert_file'] ?? '') : '';
+    }
+
+    /**
+     * What this PHP uses to check certificates, for bin/lookup.php when a request fails.
+     *
+     * @return array<string, string>
+     */
+    public static function certificateSetup(): array
+    {
+        $file = static fn (string $path): string => $path === '' ? '(niet ingesteld)' : $path . (is_readable($path) ? '' : ' (BESTAAT NIET of onleesbaar)');
+        $found = array_values(array_filter(self::CA_FILES, static fn (string $f) => is_file($f) && is_readable($f)));
+        return [
+            'PHP' => PHP_VERSION . ' (' . PHP_BINARY . ')',
+            'php.ini' => (string) (php_ini_loaded_file() ?: '(geen)'),
+            'curl / SSL' => (curl_version()['version'] ?? '?') . ' / ' . (curl_version()['ssl_version'] ?? '?'),
+            'curl.cainfo' => $file((string) ini_get('curl.cainfo')),
+            'openssl.cafile' => $file((string) ini_get('openssl.cafile')),
+            'OpenSSL standaard' => $file(self::opensslDefault()),
+            'SSL_CERT_FILE' => $file((string) getenv('SSL_CERT_FILE')),
+            'Gevonden lijsten' => $found ? implode(', ', $found) : '(geen op de gebruikelijke plekken)',
+        ];
     }
 
     /** @param array<int, mixed> $options */
@@ -73,7 +105,8 @@ final class Http
             },
         ]);
         $ok = curl_exec($ch);
-        if ($ok === false && curl_errno($ch) === CURLE_SSL_CACERT && !isset($options[CURLOPT_CAINFO])) {
+        // 60: the list doesn't know the site's root; 77: the configured list can't be read.
+        if ($ok === false && in_array(curl_errno($ch), [CURLE_SSL_CACERT, CURLE_SSL_CACERT_BADFILE], true) && !isset($options[CURLOPT_CAINFO])) {
             // The certificate couldn't be checked with PHP's list: try the system's. Still checked.
             curl_close($ch);
             foreach (self::systemCaFiles() as $caFile) {
@@ -82,7 +115,9 @@ final class Http
                     return $result;
                 }
             }
-            self::$lastError = 'certificaat van de site niet te controleren: de certificatenlijst van PHP op deze server is te oud of ontbreekt';
+            $tried = self::systemCaFiles();
+            self::$lastError = 'certificaat van de site niet te controleren: de certificatenlijst van PHP op deze server is te oud of ontbreekt'
+                . ($tried ? ' (ook geprobeerd: ' . implode(', ', $tried) . ')' : ' (en er staat geen andere lijst op de gebruikelijke plekken)');
             return null;
         }
         $code = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
