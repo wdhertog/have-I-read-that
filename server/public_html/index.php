@@ -25,12 +25,12 @@ require dirname(__DIR__) . '/autoload.php';
 
 $config = Config::load(dirname(__DIR__) . '/.env');
 
-// The URL prefix the app lives under. When the whole server/ folder is uploaded into
-// public_html, the root .htaccess rewrites into public/ but URLs don't contain "/public".
+// The URL prefix the app lives under. When the whole server/ folder is uploaded into the
+// web root, the root .htaccess rewrites into public_html/ but URLs don't contain "/public_html".
 $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
 $uriPath = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-if (str_ends_with($basePath, '/public') && $uriPath !== $basePath && !str_starts_with($uriPath, $basePath . '/')) {
-    $basePath = substr($basePath, 0, -strlen('/public'));
+if (str_ends_with($basePath, '/public_html') && $uriPath !== $basePath && !str_starts_with($uriPath, $basePath . '/')) {
+    $basePath = substr($basePath, 0, -strlen('/public_html'));
 }
 
 $https = ($_SERVER['HTTPS'] ?? '') === 'on' || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'
