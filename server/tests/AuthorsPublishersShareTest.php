@@ -100,8 +100,10 @@ final class AuthorsPublishersShareTest extends TestCase
                     $row('label', 'Gerard Reve', null, 'nl'),
                     $row('description', 'Nederlands schrijver (1923-2006)', null, 'nl'),
                     $row('description', 'Dutch writer', null, 'en'),
-                    $row('born', '1923-12-14T00:00:00Z'),
-                    $row('died', '2006-04-08T00:00:00Z'),
+                    ['prop' => 'born', 'value' => '1923-12-14T00:00:00Z', 'precision' => '11', 'rank' => 'http://wikiba.se/ontology#NormalRank'],
+                    // Only the year is known for sure; an older, wrong day is not preferred.
+                    ['prop' => 'died', 'value' => '2006-01-01T00:00:00Z', 'precision' => '9', 'rank' => 'http://wikiba.se/ontology#PreferredRank'],
+                    ['prop' => 'died', 'value' => '2005-04-08T00:00:00Z', 'precision' => '11', 'rank' => 'http://wikiba.se/ontology#NormalRank'],
                     $row('birthplace', $entity('Q727'), 'Amsterdam'),
                     $row('deathplace', $entity('Q12996'), 'Zulte'),
                     $row('country', $entity('Q55'), 'Nederland'),
@@ -137,6 +139,8 @@ final class AuthorsPublishersShareTest extends TestCase
         self::assertSame(['Nederlands schrijver (1923-2006)', 1923, '1923-12-14', 'Amsterdam', 'Zulte', ['Nederland'], ['P.C. Hooftprijs']],
             [$d['description'], $d['born']['year'], $d['born']['date'], $d['birthplace'], $d['deathplace'], $d['countries'], $d['awards']]);
         self::assertSame('Gerard Reve was een Nederlands schrijver.', $d['bio']);
+        self::assertSame(['year' => 2006, 'month' => null, 'date' => null], $d['died'], 'no "1-1-2006" for a year-only date');
+        self::assertSame(12, $d['born']['month']);
         self::assertSame('https://nl.wikipedia.org/wiki/Gerard_Reve', $d['wikipedia_url']);
         self::assertTrue($d['photo']);
         self::assertNotNull($authors->photo(314281));

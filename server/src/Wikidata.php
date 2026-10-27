@@ -335,12 +335,14 @@ final class Wikidata
     public static function authorQuery(string $qid): string
     {
         return <<<SPARQL
-            SELECT ?prop ?value ?valueLabel ?lang WHERE {
+            SELECT ?prop ?value ?valueLabel ?lang ?precision ?rank WHERE {
               VALUES ?item { wd:{$qid} }
               { ?item rdfs:label ?value . FILTER(LANG(?value) IN ("nl", "en", "mul")) BIND("label" AS ?prop) BIND(LANG(?value) AS ?lang) }
               UNION { ?item schema:description ?value . FILTER(LANG(?value) IN ("nl", "en")) BIND("description" AS ?prop) BIND(LANG(?value) AS ?lang) }
-              UNION { ?item wdt:P569 ?value . BIND("born" AS ?prop) }
-              UNION { ?item wdt:P570 ?value . BIND("died" AS ?prop) }
+              UNION { ?item p:P569 ?statement . ?statement wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank)
+                      ?statement psv:P569 [ wikibase:timeValue ?value ; wikibase:timePrecision ?precision ] . BIND("born" AS ?prop) }
+              UNION { ?item p:P570 ?statement . ?statement wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank)
+                      ?statement psv:P570 [ wikibase:timeValue ?value ; wikibase:timePrecision ?precision ] . BIND("died" AS ?prop) }
               UNION { ?item wdt:P19 ?value . BIND("birthplace" AS ?prop) }
               UNION { ?item wdt:P20 ?value . BIND("deathplace" AS ?prop) }
               UNION { ?item wdt:P27 ?value . BIND("country" AS ?prop) }
@@ -417,9 +419,20 @@ final class Wikidata
             return null;
         }
         $values = [];
+        $dates = [];
         foreach ($rows as $row) {
             $prop = (string) ($row['prop']['value'] ?? '');
             $value = trim((string) ($row['value']['value'] ?? ''));
+            if ($prop === 'born' || $prop === 'died') {
+                // A date can be known to the day, the month or only the year (then
+                // Wikidata still writes "-01-01"); there may be several, one preferred.
+                $dates[$prop][] = [
+                    'value' => $value,
+                    'precision' => (int) ($row['precision']['value'] ?? 11),
+                    'preferred' => str_ends_with((string) ($row['rank']['value'] ?? ''), 'PreferredRank'),
+                ];
+                continue;
+            }
             $label = trim((string) ($row['valueLabel']['value'] ?? $value));
             $lang = (string) ($row['lang']['value'] ?? '');
             $shown = in_array($prop, ['birthplace', 'deathplace', 'country', 'award'], true) ? $label : $value;
@@ -439,11 +452,23 @@ final class Wikidata
         $all = static fn (string $prop): array => array_values(array_unique(array_map('strval', array_merge(
             ...array_map('array_keys', array_values($values[$prop] ?? [])),
         ))));
-        $date = static function (?string $value): ?array {
-            if ($value === null || !preg_match('/^([+-]?\d{1,4})-(\d{2})-(\d{2})/', $value, $m)) {
-                return null;
+        $date = static function (string $prop) use ($dates): ?array {
+            $candidates = $dates[$prop] ?? [];
+            // The preferred value first, then the most precise one.
+            usort($candidates, static fn (array $a, array $b) => [$b['preferred'], $b['precision']] <=> [$a['preferred'], $a['precision']]);
+            foreach ($candidates as $candidate) {
+                if (!preg_match('/^([+-]?\d{1,4})-(\d{2})-(\d{2})/', $candidate['value'], $m) || $candidate['precision'] < 9) {
+                    continue; // decades and centuries say too little
+                }
+                $month = $candidate['precision'] >= 10 && $m[2] !== '00' ? (int) $m[2] : null;
+                $day = $candidate['precision'] >= 11 && $month !== null && $m[3] !== '00' ? (int) $m[3] : null;
+                return [
+                    'year' => (int) $m[1],
+                    'month' => $month,
+                    'date' => $day !== null ? sprintf('%04d-%02d-%02d', (int) $m[1], $month, $day) : null,
+                ];
             }
-            return ['year' => (int) $m[1], 'date' => $m[2] === '00' || $m[3] === '00' ? null : sprintf('%04d-%s-%s', (int) $m[1], $m[2], $m[3])];
+            return null;
         };
         $image = $first('image');
         $wikipedia = null;
@@ -461,8 +486,8 @@ final class Wikidata
         return [
             'name' => mb_substr($name, 0, 255),
             'description' => ($d = $first('description')) !== null ? mb_substr($d, 0, 500) : null,
-            'born' => $date($first('born')),
-            'died' => $date($first('died')),
+            'born' => $date('born'),
+            'died' => $date('died'),
             'birthplace' => $first('birthplace'),
             'deathplace' => $first('deathplace'),
             'countries' => array_slice($all('country'), 0, 3),

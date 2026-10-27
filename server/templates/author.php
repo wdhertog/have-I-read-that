@@ -1,6 +1,12 @@
 <?php /** @var App\View $v */
 $d = $profile['data'];
-$years = static fn (?array $date) => $date === null ? null : ($date['date'] !== null ? date('j-n-Y', strtotime($date['date'])) : (string) $date['year']);
+// Only as precise as Wikidata knows it: a day, a month or just the year.
+$years = static fn (?array $date) => match (true) {
+    $date === null => null,
+    $date['date'] !== null => date('j-n-Y', strtotime($date['date'])),
+    !empty($date['month']) => ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'][$date['month'] - 1] . ' ' . $date['year'],
+    default => (string) $date['year'],
+};
 ?>
 <p><a href="<?= $v->url('/authors') ?>">← Alle auteurs</a></p>
 <section class="card author">
