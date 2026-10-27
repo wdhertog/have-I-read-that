@@ -18,6 +18,20 @@
     </li>
     <?php endforeach ?>
   </ul>
+  <?php if ($parts === null): ?>
+    <form method="post" action="<?= $v->url('/series/refresh') ?>"><?= $v->csrf() ?>
+      <input type="hidden" name="series" value="<?= $v->e($current) ?>">
+      <button class="secondary">Andere delen opzoeken bij Wikidata</button></form>
+  <?php elseif ($parts['qid'] === null): ?>
+    <p class="muted">Wikidata kent deze serie niet (of niet met deze schrijver).</p>
+  <?php else: ?>
+    <h2>Volgens Wikidata</h2>
+    <p class="muted">Je hebt <?= $parts['have'] ?> van de <?= count($parts['parts']) ?> delen.</p>
+    <?= $v->partial('_series_parts', ['series' => $current, 'parts' => $parts['parts'], 'back' => 'series', 'onlyMissing' => false]) ?>
+    <form method="post" action="<?= $v->url('/series/refresh') ?>" class="inline"><?= $v->csrf() ?>
+      <input type="hidden" name="series" value="<?= $v->e($current) ?>">
+      <button class="link">opnieuw opzoeken</button></form>
+  <?php endif ?>
 </section>
 <?php endif ?>
 
@@ -46,6 +60,7 @@
 <section class="card">
   <h1>Series</h1>
   <p class="muted">Vul bij <em>Bewerken</em> de serie en het deel in.</p>
+  <p><a href="<?= $v->url('/series') ?>">Ontbrekende delen van je series<?= $missing ? " ({$missing})" : '' ?> →</a></p>
   <?php if (!$series): ?><p class="muted">Nog geen series.</p><?php endif ?>
   <ul class="collection-list">
     <?php foreach ($series as $s): ?>

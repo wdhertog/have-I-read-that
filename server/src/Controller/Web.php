@@ -166,6 +166,7 @@ final class Web
             'notes' => $this->app->books->notes($id),
             'loans' => $this->app->loans->forBook($id),
             'borrowers' => $this->app->loans->borrowers(),
+            'mergeCandidates' => $this->app->books->mergeCandidates($book),
             'tootKind' => $book['status'] === 'reading' ? 'started' : 'finished',
             'tootText' => $this->app->tooter->compose($book, $book['status'] === 'reading' ? 'started' : 'finished'),
         ]);
@@ -294,7 +295,103 @@ final class Web
             'series' => $this->app->books->seriesList(),
             'current' => $series,
             'seriesBooks' => $series !== '' ? $this->app->books->seriesBooks($series) : [],
+            'parts' => $series !== '' ? ($this->app->seriesParts->overview($series)[0] ?? null) : null,
+            'missing' => array_sum(array_map(static fn (array $s) => count($s['missing']), $this->app->seriesParts->overview())),
         ]);
+    }
+
+    // --- series: the parts you don't have yet -----------------------------------
+
+    public function seriesSuggestions(Request $request): Response
+    {
+        $overview = $this->app->seriesParts->overview();
+        return $this->app->render('series', [
+            'overview' => $overview,
+            'toRefresh' => $this->app->seriesParts->countToRefresh(),
+        ]);
+    }
+
+    /**
+     * Look series up in Wikidata, as many as fit in ~20 seconds (click again for the
+     * rest), or one series again when its name is given.
+     */
+    public function refreshSeries(Request $request): Response
+    {
+        $one = $request->input('series');
+        if (is_string($one) && $one !== '') {
+            try {
+                $n = $this->app->seriesParts->refresh(Books::text($one, 255));
+                $this->app->flash($n !== null ? 'ok' : 'error', $n !== null ? "Wikidata kent {$n} delen van “{$one}”." : "Wikidata kent de serie “{$one}” niet (of de schrijver klopt niet).");
+            } catch (\Throwable $e) {
+                error_log("Serie {$one} opzoeken mislukt: {$e}");
+                $this->app->flash('error', 'Opzoeken mislukt; probeer het later nog eens.');
+            }
+            return Response::redirect($this->app->url('/collections', ['series' => $one]));
+        }
+        $deadline = microtime(true) + 20;
+        $done = 0;
+        $found = 0;
+        foreach ($this->app->seriesParts->toRefresh(50) as $series) {
+            if (microtime(true) > $deadline) {
+                break;
+            }
+            try {
+                $found += $this->app->seriesParts->refresh($series) !== null ? 1 : 0;
+            } catch (\Throwable $e) {
+                error_log("Serie {$series} opzoeken mislukt: {$e}");
+            }
+            $done++;
+        }
+        $left = $this->app->seriesParts->countToRefresh();
+        $this->app->flash('ok', "{$done} series opgezocht, {$found} gevonden bij Wikidata." . ($left ? " Nog {$left} te gaan: klik nog eens." : ''));
+        return Response::redirect($this->app->url('/series'));
+    }
+
+    public function addSeriesPart(Request $request): Response
+    {
+        $series = (string) $request->input('series');
+        try {
+            $id = $this->app->seriesParts->addToRead(Books::text($series, 255), (string) $request->input('qid'));
+            $this->app->flash('ok', 'Op je “Wil ik lezen”-lijst gezet.');
+            return $request->input('back') === 'series' ? Response::redirect($this->app->url('/collections', ['series' => $series])) : $this->toBook($id);
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+            return Response::redirect($this->app->url('/series'));
+        }
+    }
+
+    public function dismissSeriesPart(Request $request): Response
+    {
+        try {
+            $this->app->seriesParts->dismiss((string) $request->input('qid'));
+            $this->app->flash('ok', 'Die tip krijg je niet meer.');
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
+        $series = $request->input('series');
+        return $request->input('back') === 'series' && is_string($series)
+            ? Response::redirect($this->app->url('/collections', ['series' => $series]))
+            : Response::redirect($this->app->url('/series') . '#tips');
+    }
+
+    // --- merging editions ---------------------------------------------------------
+
+    public function merge(Request $request, int $id): Response
+    {
+        $other = (int) $request->input('other');
+        try {
+            $changes = $this->app->books->merge($id, $other);
+            $this->app->covers->moveUpload($other, $id);
+            $this->app->flash('ok', 'Samengevoegd.' . ($changes ? ' Overgenomen: ' . implode(', ', $changes) . '.' : ''));
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
+        return $this->toBook($id);
+    }
+
+    public function duplicates(Request $request): Response
+    {
+        return $this->app->render('duplicates', ['pairs' => $this->app->books->likelyDuplicates()]);
     }
 
     public function renameShelf(Request $request): Response

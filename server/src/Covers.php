@@ -95,6 +95,15 @@ final class Covers
         file_put_contents($this->customPath($bookId), $jpeg, LOCK_EX);
     }
 
+    /** After merging: the merged book's own cover goes along, unless the kept book has one. */
+    public function moveUpload(int $fromId, int $toId): void
+    {
+        $from = $this->customPath($fromId);
+        if (is_file($from)) {
+            is_file($this->customPath($toId)) ? @unlink($from) : @rename($from, $this->customPath($toId));
+        }
+    }
+
     public function deleteUpload(int $bookId): void
     {
         @unlink($this->customPath($bookId));

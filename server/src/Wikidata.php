@@ -211,7 +211,7 @@ final class Wikidata
                 // Prefer a numbered place in a series, then the edition's own series over the work's.
                 $score = ($number !== null ? 2 : 0) + $direct;
                 if ($score > $seriesScore) {
-                    $series = ['series' => mb_substr($label, 0, 255), 'series_number' => $number];
+                    $series = ['series' => mb_substr($label, 0, 255), 'series_number' => $number, 'qid' => self::qid($value)];
                     $seriesScore = $score;
                 }
                 continue;
@@ -248,6 +248,7 @@ final class Wikidata
         return [
             'series' => $series['series'] ?? null,
             'series_number' => $series['series_number'] ?? null,
+            'wikidata_series' => $series['qid'] ?? null,
             'original_title' => isset($pick('title', 0)[0]) ? mb_substr($pick('title', 0)[0], 0, 500) : null,
             'original_language' => Language::normalize($pick('language', 0)[0] ?? null),
             'first_published' => $years ? min($years) : null,
@@ -256,6 +257,157 @@ final class Wikidata
             'awards' => $join($pick('award', 0), 10, 1000),
             'wikipedia' => $wikipedia,
         ];
+    }
+
+    // --- series -----------------------------------------------------------------
+
+    /**
+     * The Q-id of a series by its name, checked against the authors of your books in
+     * it: the name (or another name of it) must match and one of its books must share
+     * an author's surname. Null when Wikidata doesn't know it.
+     *
+     * @param list<string> $authors
+     */
+    public function findSeries(string $name, array $authors): ?string
+    {
+        if (self::words($name) === '') {
+            return null;
+        }
+        $json = ($this->get)(self::URL . rawurlencode(self::seriesSearchQuery($name)));
+        return $json !== null ? self::parseSeriesSearch($json, $name, $authors) : null;
+    }
+
+    /** @return list<array{qid: string, number: ?float, title: string, title_en: ?string, author: string, year: ?int}>|null */
+    public function seriesParts(string $qid): ?array
+    {
+        if (self::qid($qid) === null) {
+            return null;
+        }
+        $json = ($this->get)(self::URL . rawurlencode(self::seriesPartsQuery($qid)));
+        return $json !== null ? self::parseSeriesParts($json) : null;
+    }
+
+    /** SPARQL that searches series (items that books are part of) by name. */
+    public static function seriesSearchQuery(string $name): string
+    {
+        $search = self::words($name);
+        return <<<SPARQL
+            SELECT ?item ?name ?authorName WHERE {
+              SERVICE wikibase:mwapi {
+                bd:serviceParam wikibase:endpoint "www.wikidata.org" ; wikibase:api "Search" ;
+                  mwapi:srsearch "{$search}" ; mwapi:srlimit "10" .
+                ?item wikibase:apiOutputItem mwapi:title .
+              }
+              FILTER EXISTS { ?part wdt:P179 ?item }
+              { ?item rdfs:label ?name } UNION { ?item skos:altLabel ?name }
+              FILTER(LANG(?name) IN ("nl", "en", "mul"))
+              OPTIONAL {
+                { ?item wdt:P50 ?author } UNION { ?book wdt:P179 ?item ; wdt:P50 ?author }
+                ?author rdfs:label ?authorName .
+                FILTER(LANG(?authorName) IN ("nl", "en", "mul"))
+              }
+            }
+            LIMIT 1000
+            SPARQL;
+    }
+
+    /** SPARQL for the works in a series (not editions, not sub-series), with titles and authors. */
+    public static function seriesPartsQuery(string $qid): string
+    {
+        return <<<SPARQL
+            SELECT ?work ?ordinal ?titleNl ?titleEn ?authorName ?date WHERE {
+              ?work p:P179 ?statement .
+              ?statement ps:P179 wd:{$qid} .
+              OPTIONAL { ?statement pq:P1545 ?ordinal }
+              FILTER NOT EXISTS { ?work wdt:P31 wd:Q3331189 }
+              FILTER NOT EXISTS { ?subpart wdt:P179 ?work }
+              OPTIONAL { ?work rdfs:label ?titleNl . FILTER(LANG(?titleNl) = "nl") }
+              OPTIONAL { ?work rdfs:label ?titleEn . FILTER(LANG(?titleEn) = "en") }
+              OPTIONAL { ?work wdt:P50 ?author . ?author rdfs:label ?authorName . FILTER(LANG(?authorName) IN ("nl", "en")) }
+              OPTIONAL { ?work wdt:P577 ?date }
+            }
+            LIMIT 1000
+            SPARQL;
+    }
+
+    /** @param list<string> $authors */
+    public static function parseSeriesSearch(string $json, string $name, array $authors): ?string
+    {
+        $wanted = self::words($name);
+        $surnames = self::surnames(implode(', ', $authors));
+        $items = [];
+        foreach (self::rows($json) ?? [] as $row) {
+            $item = self::qid($row['item']['value'] ?? '');
+            if ($item === null) {
+                continue;
+            }
+            $items[$item]['names'][self::words((string) ($row['name']['value'] ?? ''))] = true;
+            foreach (self::surnames((string) ($row['authorName']['value'] ?? '')) as $surname) {
+                $items[$item]['surnames'][$surname] = true;
+            }
+        }
+        foreach ($items as $item => $info) {
+            $names = array_map('strval', array_keys($info['names']));
+            // "De Kronieken van Narnia" also matches the series "Kronieken van Narnia".
+            $nameMatches = in_array($wanted, $names, true) || in_array(preg_replace('/^(de|het|een|the|a) /', '', $wanted), array_map(
+                static fn (string $n) => (string) preg_replace('/^(de|het|een|the|a) /', '', $n), $names), true);
+            $authorMatches = $surnames === [] || array_intersect($surnames, array_map('strval', array_keys($info['surnames'] ?? []))) !== [];
+            if ($nameMatches && $authorMatches) {
+                return (string) $item;
+            }
+        }
+        return null;
+    }
+
+    /** @return list<array{qid: string, number: ?float, title: string, title_en: ?string, author: string, year: ?int}>|null */
+    public static function parseSeriesParts(string $json): ?array
+    {
+        $rows = self::rows($json);
+        if ($rows === null) {
+            return null;
+        }
+        $parts = [];
+        foreach ($rows as $row) {
+            $qid = self::qid($row['work']['value'] ?? '');
+            if ($qid === null) {
+                continue;
+            }
+            $part = $parts[$qid] ?? ['qid' => $qid, 'number' => null, 'title' => '', 'title_en' => null, 'authors' => [], 'year' => null];
+            $ordinal = str_replace(',', '.', trim((string) ($row['ordinal']['value'] ?? '')));
+            if ($part['number'] === null && is_numeric($ordinal) && (float) $ordinal >= 0 && (float) $ordinal < 10000) {
+                $part['number'] = round((float) $ordinal, 1);
+            }
+            $nl = trim((string) ($row['titleNl']['value'] ?? ''));
+            $en = trim((string) ($row['titleEn']['value'] ?? ''));
+            if ($part['title'] === '' && ($nl !== '' || $en !== '')) {
+                $part['title'] = mb_substr($nl !== '' ? $nl : $en, 0, 500);
+            }
+            if ($en !== '' && $en !== $part['title']) {
+                $part['title_en'] = mb_substr($en, 0, 500);
+            }
+            $author = trim((string) ($row['authorName']['value'] ?? ''));
+            if ($author !== '' && self::qid($author) === null) {
+                $part['authors'][$author] = true;
+            }
+            if ($part['year'] === null && preg_match('/^([+-]?\d{1,4})-/', (string) ($row['date']['value'] ?? ''), $m)) {
+                $part['year'] = (int) $m[1];
+            }
+            $parts[$qid] = $part;
+        }
+        $parts = array_values(array_filter($parts, static fn (array $p) => $p['title'] !== '' && self::qid($p['title']) === null));
+        usort($parts, static fn (array $a, array $b) => [$a['number'] === null, $a['number'], $a['year'] ?? 9999, $a['title']]
+            <=> [$b['number'] === null, $b['number'], $b['year'] ?? 9999, $b['title']]);
+        return array_map(static function (array $p): array {
+            $p['author'] = mb_substr(implode(', ', array_slice(array_map('strval', array_keys($p['authors'])), 0, 3)), 0, 500);
+            unset($p['authors']);
+            return $p;
+        }, $parts);
+    }
+
+    /** Lowercase letters and digits only: for matching titles from different places. */
+    public static function matchKey(string $title): string
+    {
+        return self::words($title);
     }
 
     /** The first paragraph of a Wikipedia page summary, or null for a disambiguation page. */

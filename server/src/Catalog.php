@@ -12,7 +12,7 @@ final class Catalog
 {
     public const FIELDS = [
         'title', 'author', 'pages', 'publisher', 'year', 'language', 'series', 'series_number', 'description', 'genre',
-        'original_title', 'original_language', 'translator', 'first_published', 'awards',
+        'original_title', 'original_language', 'translator', 'first_published', 'awards', 'wikidata_series',
     ];
 
     public const DEFAULT_METADATA_SOURCES = 'kb,openlibrary,google,hardcover,wikidata';
@@ -89,7 +89,7 @@ final class Catalog
             foreach (self::FIELDS as $field) {
                 $value = ($found[$field] ?? null) === '' ? null : ($found[$field] ?? null);
                 $empty = ($merged[$field] ?? null) === null;
-                if ($field === 'series_number') {
+                if ($field === 'series_number' || $field === 'wikidata_series') {
                     // A number only belongs with the series it came with.
                     $empty = $empty && $seriesFrom === $source;
                 } elseif ($field === 'description' && !$empty && $value !== null) {

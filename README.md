@@ -204,6 +204,24 @@ boek uitleest, onthoudt de app tot welke pagina je die dag kwam. Boeken van vó�
 dagboek (en je import) worden geschat: gelijk verdeeld over de dagen tussen begin- en
 einddatum.
 
+## Ontbrekende delen van je series
+
+Onder *Tips* zoekt de app voor elke serie in je bibliotheek bij Wikidata alle delen
+op (in porties; na 30 dagen opnieuw) en kijkt welke je al hebt: op titel, op
+oorspronkelijke titel of op deelnummer. De rest staat er als tip, met een knop om
+het op je "Wil ik lezen"-lijst te zetten of "niet interessant" om de tip weg te
+klikken. Per serie zie je het ook onder *Planken & series*. Wikidata moet de serie
+kennen onder (ongeveer) dezelfde naam, met een schrijver die je ook hebt.
+
+## Edities samenvoegen
+
+Staat een boek er twee keer in (paperback en e-book, vertaling en origineel, of twee
+keer geïmporteerd)? Op de boekpagina onder *Samenvoegen* kies je de andere editie,
+of je kijkt bij *Import/export → Dubbele boeken* naar alle mogelijke dubbele boeken.
+Leesmomenten, notities, uitleningen en posts gaan naar het boek dat je bewaart, lege
+velden worden aangevuld en planken samengevoegd. Het ISBN en StoryGraph-id van de
+andere editie blijven bekend, zodat scannen en een nieuwe import het boek herkennen.
+
 ## Jaaroverzicht
 
 Onder *Statistieken* staat een kaart om je leesjaar te posten: aantal boeken,
