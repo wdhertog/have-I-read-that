@@ -108,7 +108,7 @@ progress { accent-color: var(--accent); width: 140px; height: 10px; vertical-ali
 details.wide > summary { cursor: pointer; color: var(--accent); margin: 4px 0 8px; }
 .three { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 20px; }
 .three h3, .card h3 { font-size: 1rem; margin: 12px 0 6px; }
-td.num { text-align: right; white-space: nowrap; }
+td.num, th.num { text-align: right; white-space: nowrap; }
 .days { display: grid; grid-template-columns: repeat(14, 1fr); gap: 4px; align-items: end; text-align: center; }
 .days > div { display: flex; flex-direction: column; font-size: .75rem; }
 .day-track { display: flex; align-items: flex-end; height: 70px; }
@@ -120,3 +120,7 @@ td.num { text-align: right; white-space: nowrap; }
 .parts li.have { opacity: .8; }
 .parts .actions { margin-top: 4px; align-items: center; }
 .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.author { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.author > div { flex: 1; min-width: 240px; }
+.author-photo { width: 160px; height: auto; border-radius: 8px; }
+.share-actions { flex-wrap: wrap; margin: 4px 0 12px; }

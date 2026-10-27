@@ -77,7 +77,7 @@ final class SeriesParts
         if (!$rows) {
             return [];
         }
-        [$byTitle, $bySeries] = $this->libraryIndex();
+        $index = new TitleIndex($this->db);
         $dismissed = array_flip(array_map('strval', $this->query('SELECT qid FROM dismissed_suggestions')->fetchAll(PDO::FETCH_COLUMN)));
         $result = [];
         foreach ($rows as $row) {
@@ -89,7 +89,7 @@ final class SeriesParts
             $used = [];
             foreach ($parts as &$part) {
                 $part['number'] = isset($part['number']) ? (float) $part['number'] : null; // JSON made 2.0 into 2
-                $part['book'] = $this->matchTitle($part, $byTitle);
+                $part['book'] = $index->byTitle([$part['title'] ?? null, $part['title_en'] ?? null]);
                 if ($part['book'] !== null) {
                     $used[$part['book']['id']] = true;
                 }
@@ -97,7 +97,7 @@ final class SeriesParts
             unset($part);
             foreach ($parts as &$part) {
                 if ($part['book'] === null && $part['number'] !== null) {
-                    $book = $bySeries[Wikidata::matchKey((string) $row['series']) . '#' . $part['number']] ?? null;
+                    $book = $index->bySeries((string) $row['series'], $part['number']);
                     if ($book !== null && !isset($used[$book['id']])) {
                         $part['book'] = $book;
                         $used[$book['id']] = true;
@@ -154,55 +154,6 @@ final class SeriesParts
             }
         }
         return null;
-    }
-
-    /**
-     * Your books by title (also the original title, and without a subtitle), and by
-     * series and part number.
-     *
-     * @return array{0: array<string, array<string, mixed>>, 1: array<string, array<string, mixed>>}
-     */
-    private function libraryIndex(): array
-    {
-        $byTitle = [];
-        $bySeries = [];
-        foreach ($this->query('SELECT id, title, original_title, series, series_number, status FROM books ORDER BY id')->fetchAll() as $book) {
-            $book = ['id' => (int) $book['id']] + $book;
-            foreach ([$book['title'], $book['original_title']] as $title) {
-                foreach (self::keys((string) $title) as $key) {
-                    $byTitle[$key] ??= $book;
-                }
-            }
-            if ($book['series'] !== null && $book['series_number'] !== null) {
-                $bySeries[Wikidata::matchKey((string) $book['series']) . '#' . (float) $book['series_number']] ??= $book;
-            }
-        }
-        return [$byTitle, $bySeries];
-    }
-
-    /**
-     * @param array<string, mixed> $part
-     * @param array<string, array<string, mixed>> $byTitle
-     * @return array<string, mixed>|null
-     */
-    private function matchTitle(array $part, array $byTitle): ?array
-    {
-        foreach ([$part['title'] ?? '', $part['title_en'] ?? ''] as $title) {
-            foreach (self::keys((string) $title) as $key) {
-                if (isset($byTitle[$key])) {
-                    return $byTitle[$key];
-                }
-            }
-        }
-        return null;
-    }
-
-    /** @return list<string> "De avonden: een winterverhaal" → ["de avonden een winterverhaal", "de avonden"] */
-    private static function keys(string $title): array
-    {
-        $main = trim((string) preg_split('/\s*[:(\[]/u', $title)[0]);
-        // A main title of one or two letters says too little to match on.
-        return array_values(array_unique(array_filter([Wikidata::matchKey($title), Wikidata::matchKey($main)], static fn (string $k) => mb_strlen($k) >= 3)));
     }
 
     /** @param list<mixed> $args */

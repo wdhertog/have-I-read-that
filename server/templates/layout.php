@@ -29,6 +29,7 @@
       <a href="<?= $v->url('/books/add') ?>">+ Toevoegen</a>
       <a href="<?= $v->url('/collections') ?>">Planken &amp; series</a>
       <a href="<?= $v->url('/series') ?>">Tips</a>
+      <a href="<?= $v->url('/authors') ?>">Auteurs</a>
       <a href="<?= $v->url('/loans') ?>">Uitgeleend</a>
       <a href="<?= $v->url('/stats') ?>">Statistieken</a>
       <a href="<?= $v->url('/import') ?>">Import/export</a>

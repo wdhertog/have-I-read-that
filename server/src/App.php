@@ -24,6 +24,7 @@ final class App
     public readonly Catalog $catalog;
     public readonly Loans $loans;
     public readonly SeriesParts $seriesParts;
+    public readonly Authors $authors;
     /** The request being handled, for absolute URLs. */
     private ?Request $request = null;
     private Router $router;
@@ -36,6 +37,13 @@ final class App
         $this->catalog = new Catalog($config);
         $this->loans = new Loans($db);
         $this->seriesParts = new SeriesParts($db, $this->books, $this->catalog->wikidata());
+        $this->authors = new Authors(
+            $db,
+            $this->books,
+            $this->catalog->wikidata(),
+            $config->get('AUTHORS_DIR', dirname($config->get('COVERS_DIR', dirname(__DIR__) . '/var/covers')) . '/authors'),
+            \Closure::fromCallable([Http::class, 'get']),
+        );
         $this->covers = new Covers(
             $config->get('COVERS_DIR', dirname(__DIR__) . '/var/covers'),
             [$this->catalog, 'cover'],
@@ -87,6 +95,14 @@ final class App
         $r->add('POST', '/series/dismiss', [$web, 'dismissSeriesPart']);
         $r->add('POST', '/books/{id}/merge', [$web, 'merge']);
         $r->add('GET', '/duplicates', [$web, 'duplicates']);
+        $r->add('GET', '/authors', [$web, 'authors']);
+        $r->add('GET', '/author', [$web, 'author']);
+        $r->add('POST', '/author/refresh', [$web, 'refreshAuthor']);
+        $r->add('POST', '/author/add', [$web, 'addAuthorWork']);
+        $r->add('POST', '/author/dismiss', [$web, 'dismissAuthorWork']);
+        $r->add('GET', '/authors/photo/{id}', [$web, 'authorPhoto']);
+        $r->add('GET', '/publishers', [$web, 'publishers']);
+        $r->add('GET', '/publisher', [$web, 'publisher']);
         $r->add('POST', '/reads/{id}/delete', [$web, 'deleteRead']);
         $r->add('GET', '/stats', [$web, 'stats']);
         $r->add('POST', '/stats/goal', [$web, 'setGoal']);
@@ -163,6 +179,21 @@ final class App
             $base = ($request->https ? 'https' : 'http') . '://' . $host . $this->basePath;
         }
         return $base . $path;
+    }
+
+    /**
+     * Texts to send someone about a book, with the public book page when there is one.
+     *
+     * @param array<string, mixed> $book
+     * @return array{opinion: string, ask_back: ?string}
+     */
+    public function shareTexts(array $book): array
+    {
+        $public = $this->publicPage() && in_array($book['status'], Books::PUBLIC_STATUSES, true) && $this->request !== null;
+        return [
+            'opinion' => Share::opinion($book, $public ? $this->absoluteUrl($this->request, "/boek/{$book['id']}") : null),
+            'ask_back' => Share::askBack($book),
+        ];
     }
 
     public function publicPage(): bool

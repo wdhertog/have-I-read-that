@@ -3,7 +3,9 @@
   <?= $v->partial('_cover', ['b' => $book, 'size' => 'L']) ?>
   <div>
     <h1><?= $v->e($book['title']) ?></h1>
-    <p class="muted"><?= $v->e($book['author']) ?></p>
+    <?php if ($book['author'] !== ''): ?>
+      <p class="muted"><?php foreach (App\Authors::names($book['author']) as $i => $author): ?><?= $i ? ', ' : '' ?><a href="<?= $v->url('/author', ['name' => $author]) ?>"><?= $v->e($author) ?></a><?php endforeach ?></p>
+    <?php endif ?>
     <?php if ($book['series']): ?>
       <p><a href="<?= $v->url('/collections', ['series' => $book['series']]) ?>"><?= $v->e($book['series']) ?></a><?= $book['series_number'] !== null ? ', deel ' . $v->e(rtrim(rtrim(number_format($book['series_number'], 1, ',', ''), '0'), ',')) : '' ?></p>
     <?php endif ?>
@@ -17,7 +19,7 @@
         <dt>Genre</dt><dd><?php foreach (App\Books::tagList($book['genre']) as $i => $genre): ?><?= $i ? ', ' : '' ?><a href="<?= $v->url('/books', ['q' => $genre]) ?>"><?= $v->e($genre) ?></a><?php endforeach ?></dd>
       <?php endif ?>
       <?php foreach (['contributors' => 'Medewerkers', 'translator' => 'Vertaler', 'original_title' => 'Oorspronkelijke titel', 'original_language' => 'Oorspronkelijke taal', 'first_published' => 'Eerste verschijning', 'isbn' => 'ISBN', 'pages' => "Pagina's", 'publisher' => 'Uitgever', 'published_year' => 'Jaar', 'language' => 'Taal', 'format' => 'Formaat', 'tags' => 'Tags', 'moods' => 'Moods', 'awards' => 'Prijzen'] as $key => $label): ?>
-        <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?= $v->e(in_array($key, ['language', 'original_language'], true) ? App\Language::label($book[$key]) : $book[$key]) ?></dd><?php endif ?>
+        <?php if ($book[$key] ?? null): ?><dt><?= $label ?></dt><dd><?php if ($key === 'publisher'): ?><a href="<?= $v->url('/publisher', ['name' => $book[$key]]) ?>"><?= $v->e($book[$key]) ?></a><?php else: ?><?= $v->e(in_array($key, ['language', 'original_language'], true) ? App\Language::label($book[$key]) : $book[$key]) ?><?php endif ?></dd><?php endif ?>
       <?php endforeach ?>
       <?php foreach ($book['details'] ?? [] as $name => $value): ?>
         <dt><?= $v->e(App\StoryGraph::DETAIL_LABELS[$name] ?? $name) ?></dt><dd><?= $v->e($value) ?></dd>
@@ -167,6 +169,19 @@
     <input type="hidden" name="kind" value="<?= $tootKind ?>">
     <button class="secondary">Nu posten</button>
   </form>
+</section>
+
+<section class="card" id="delen">
+  <h2>Delen</h2>
+  <p class="muted">Stuur iemand een berichtje over dit boek, via Signal, WhatsApp, mail of iets anders. Pas de tekst gerust aan.</p>
+  <?php foreach (array_filter(['share-back' => ['Terugvragen', $shareAskBack], 'share-opinion' => ['Wat ik ervan vind', $shareOpinion]], static fn ($s) => $s[1] !== null) as $id => [$label, $text]): ?>
+    <label><?= $label ?> <textarea id="<?= $id ?>" rows="<?= min(8, 2 + substr_count($text, "\n")) ?>"><?= $v->e($text) ?></textarea></label>
+    <div class="actions share-actions">
+      <button type="button" data-share="<?= $id ?>">Delen…</button>
+      <a class="button secondary" data-whatsapp="<?= $id ?>" href="https://wa.me/?text=<?= rawurlencode($text) ?>" target="_blank" rel="noopener">WhatsApp</a>
+      <button type="button" class="secondary" data-copy="<?= $id ?>">Kopiëren</button>
+    </div>
+  <?php endforeach ?>
 </section>
 
 <section class="card" id="samenvoegen">

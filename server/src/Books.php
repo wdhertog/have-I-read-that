@@ -878,7 +878,7 @@ final class Books
      *
      * @param array<array-key, int> $spellings spelling => times used
      */
-    private static function spelling(array $spellings): string
+    public static function spelling(array $spellings): string
     {
         $names = array_map('strval', array_keys($spellings));
         usort($names, static fn (string $a, string $b) => [$spellings[$b], $a] <=> [$spellings[$a], $b]);
@@ -1277,6 +1277,71 @@ final class Books
         }
         uksort($top, static fn ($a, $b) => [$top[$b], (string) $a] <=> [$top[$a], (string) $b]);
         return array_slice($top, 0, $limit, true);
+    }
+
+    /**
+     * "Uitgeverij De Bezige Bij b.v." and "Bezige Bij" are one publisher: lowercase,
+     * without punctuation, company forms and words like "uitgeverij".
+     */
+    public static function publisherKey(string $publisher): string
+    {
+        $key = Wikidata::matchKey($publisher);
+        $key = (string) preg_replace('/\b(uitgeverij|uitgevers|uitgeversmaatschappij|uitg|publishers|publishing|publisher|books|press|verlag|editions?|b ?v|n ?v|ltd|inc|llc|gmbh|co)\b/u', ' ', $key);
+        $key = (string) preg_replace('/^(de|het|the|een|a)\s+/u', '', trim((string) preg_replace('/\s+/u', ' ', $key)));
+        return $key !== '' ? $key : Wikidata::matchKey($publisher);
+    }
+
+    /**
+     * Publishers of your books: how many books, how many read, pages read and the
+     * average rating; most read first.
+     *
+     * @return list<array{name: string, key: string, books: int, read: int, pages: int, rating: ?float}>
+     */
+    public function publishers(): array
+    {
+        $groups = [];
+        foreach ($this->query("SELECT publisher, status, rating, pages FROM books WHERE publisher IS NOT NULL AND publisher != ''")->fetchAll() as $book) {
+            $name = trim((string) $book['publisher']);
+            $key = self::publisherKey($name);
+            $groups[$key] ??= ['spellings' => [], 'books' => 0, 'read' => 0, 'pages' => 0, 'ratings' => []];
+            $groups[$key]['spellings'][$name] = ($groups[$key]['spellings'][$name] ?? 0) + 1;
+            $groups[$key]['books']++;
+            if ($book['status'] === 'read') {
+                $groups[$key]['read']++;
+                $groups[$key]['pages'] += (int) $book['pages'];
+            }
+            if ($book['rating'] !== null) {
+                $groups[$key]['ratings'][] = (float) $book['rating'];
+            }
+        }
+        $result = [];
+        foreach ($groups as $key => $g) {
+            $result[] = [
+                'name' => self::spelling($g['spellings']),
+                'key' => (string) $key,
+                'books' => $g['books'],
+                'read' => $g['read'],
+                'pages' => $g['pages'],
+                'rating' => $g['ratings'] ? round(array_sum($g['ratings']) / count($g['ratings']), 2) : null,
+                'rated' => count($g['ratings']),
+            ];
+        }
+        usort($result, static fn (array $a, array $b) => [$b['read'], $b['books'], $a['name']] <=> [$a['read'], $a['books'], $b['name']]);
+        return $result;
+    }
+
+    /**
+     * Your books from one publisher, however its name is written.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function byPublisher(string $publisher): array
+    {
+        $key = self::publisherKey($publisher);
+        return array_values(array_filter(
+            $this->list(),
+            static fn (array $book) => ($book['publisher'] ?? null) !== null && $book['publisher'] !== '' && self::publisherKey((string) $book['publisher']) === $key,
+        ));
     }
 
     public function topAuthors(int $limit = 10): array
