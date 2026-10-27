@@ -222,6 +222,24 @@ Leesmomenten, notities, uitleningen en posts gaan naar het boek dat je bewaart, 
 velden worden aangevuld en planken samengevoegd. Het ISBN en StoryGraph-id van de
 andere editie blijven bekend, zodat scannen en een nieuwe import het boek herkennen.
 
+## Auteurs en uitgevers
+
+Klik op de naam van een schrijver (op een boekpagina, of via *Auteurs*) voor een
+auteurspagina: een korte bio uit Wikidata en de eerste alinea van Wikipedia, de foto
+(van Wikimedia Commons, opgeslagen op je eigen server), je boeken van die schrijver en
+hun andere werk, met "Op Wil ik lezen" voor wat je nog niet hebt. Het wordt de eerste
+keer opgezocht en 30 dagen bewaard. Onder *Auteurs → uitgevers* (of via de uitgever op
+een boekpagina) zie je je favoriete uitgevers: waar je het meest van las en welke je
+het best beoordeelt; schrijfwijzen als "Uitgeverij De Bezige Bij" en "Bezige Bij" tellen
+als één.
+
+## Delen
+
+Op een boekpagina (en in de app via het deelicoon) stuur je iemand een berichtje via
+Signal, WhatsApp, mail of iets anders: wat je van het boek vond (met je beoordeling,
+recensie en de openbare boekpagina), of, als het is uitgeleend, een vriendelijk
+verzoek om het terug te krijgen. Op de website kun je de tekst eerst aanpassen.
+
 ## Jaaroverzicht
 
 Onder *Statistieken* staat een kaart om je leesjaar te posten: aantal boeken,

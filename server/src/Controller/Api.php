@@ -356,6 +356,7 @@ final class Api
             'posts' => $this->app->books->posts($book['id']),
             'notes' => $this->app->books->notes($book['id']),
             'loans' => $this->app->loans->forBook($book['id']),
+            'share' => $this->app->shareTexts($book),
             'toot_preview' => [
                 'started' => $this->app->tooter->compose($book, 'started'),
                 'finished' => $this->app->tooter->compose($book, 'finished'),

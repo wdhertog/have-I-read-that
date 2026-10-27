@@ -259,6 +259,234 @@ final class Wikidata
         ];
     }
 
+    // --- authors ----------------------------------------------------------------
+
+    /**
+     * The Q-id of a writer by name: a person whose name (or another name) matches and
+     * who wrote books in Wikidata; of several, the one who wrote one of the given
+     * titles, else the one with the most books. Null when Wikidata doesn't know them.
+     *
+     * @param list<string> $titles Titles of your books by them.
+     */
+    public function findAuthor(string $name, array $titles = []): ?string
+    {
+        $name = self::firstLast($name);
+        if (self::words($name) === '') {
+            return null;
+        }
+        $json = ($this->get)(self::URL . rawurlencode(self::authorSearchQuery($name)));
+        return $json !== null ? self::parseAuthorSearch($json, $name, $titles) : null;
+    }
+
+    /**
+     * What Wikidata and Wikipedia say about a writer.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function author(string $qid): ?array
+    {
+        if (self::qid($qid) === null) {
+            return null;
+        }
+        $json = ($this->get)(self::URL . rawurlencode(self::authorQuery($qid)));
+        $author = $json !== null ? self::parseAuthor($json) : null;
+        if ($author === null) {
+            return null;
+        }
+        if ($author['wikipedia'] !== null) {
+            [$language, $page] = $author['wikipedia'];
+            $summary = ($this->get)("https://{$language}.wikipedia.org/api/rest_v1/page/summary/" . rawurlencode($page));
+            $author['bio'] = $summary !== null ? self::parseSummary($summary) : null;
+            $author['bio_language'] = $language;
+            $author['wikipedia_url'] = "https://{$language}.wikipedia.org/wiki/" . rawurlencode(str_replace(' ', '_', $page));
+        }
+        unset($author['wikipedia']);
+        $author['works'] = [];
+        $json = ($this->get)(self::URL . rawurlencode(self::authorWorksQuery($qid)));
+        if ($json !== null) {
+            $author['works'] = self::parseSeriesParts($json) ?? [];
+            usort($author['works'], static fn (array $a, array $b) => [$a['year'] ?? 9999, $a['title']] <=> [$b['year'] ?? 9999, $b['title']]);
+        }
+        return $author;
+    }
+
+    /** SPARQL that searches people who wrote books, by name, with all their names and how many books. */
+    public static function authorSearchQuery(string $name): string
+    {
+        $search = self::words($name) . ' haswbstatement:P31=Q5';
+        return <<<SPARQL
+            SELECT ?item ?name ?titleNl ?titleEn WHERE {
+              SERVICE wikibase:mwapi {
+                bd:serviceParam wikibase:endpoint "www.wikidata.org" ; wikibase:api "Search" ;
+                  mwapi:srsearch "{$search}" ; mwapi:srlimit "10" .
+                ?item wikibase:apiOutputItem mwapi:title .
+              }
+              { ?item rdfs:label ?name } UNION { ?item skos:altLabel ?name }
+              FILTER(LANG(?name) IN ("nl", "en", "mul"))
+              ?work wdt:P50 ?item .
+              OPTIONAL { ?work rdfs:label ?titleNl . FILTER(LANG(?titleNl) = "nl") }
+              OPTIONAL { ?work rdfs:label ?titleEn . FILTER(LANG(?titleEn) = "en") }
+            }
+            LIMIT 3000
+            SPARQL;
+    }
+
+    /** SPARQL for a writer's description, life, picture, awards and Wikipedia pages. */
+    public static function authorQuery(string $qid): string
+    {
+        return <<<SPARQL
+            SELECT ?prop ?value ?valueLabel ?lang WHERE {
+              VALUES ?item { wd:{$qid} }
+              { ?item rdfs:label ?value . FILTER(LANG(?value) IN ("nl", "en", "mul")) BIND("label" AS ?prop) BIND(LANG(?value) AS ?lang) }
+              UNION { ?item schema:description ?value . FILTER(LANG(?value) IN ("nl", "en")) BIND("description" AS ?prop) BIND(LANG(?value) AS ?lang) }
+              UNION { ?item wdt:P569 ?value . BIND("born" AS ?prop) }
+              UNION { ?item wdt:P570 ?value . BIND("died" AS ?prop) }
+              UNION { ?item wdt:P19 ?value . BIND("birthplace" AS ?prop) }
+              UNION { ?item wdt:P20 ?value . BIND("deathplace" AS ?prop) }
+              UNION { ?item wdt:P27 ?value . BIND("country" AS ?prop) }
+              UNION { ?item wdt:P18 ?value . BIND("image" AS ?prop) }
+              UNION { ?item wdt:P166 ?value . BIND("award" AS ?prop) }
+              UNION { ?value schema:about ?item ; schema:isPartOf <https://nl.wikipedia.org/> . BIND("nlwiki" AS ?prop) }
+              UNION { ?value schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . BIND("enwiki" AS ?prop) }
+              SERVICE wikibase:label { bd:serviceParam wikibase:language "nl,en,mul". }
+            }
+            LIMIT 500
+            SPARQL;
+    }
+
+    /** SPARQL for a writer's literary works (not editions), with titles and year. */
+    public static function authorWorksQuery(string $qid): string
+    {
+        return <<<SPARQL
+            SELECT ?work ?titleNl ?titleEn ?date WHERE {
+              ?work wdt:P50 wd:{$qid} .
+              ?work wdt:P31/wdt:P279* wd:Q7725634 .
+              FILTER NOT EXISTS { ?work wdt:P31 wd:Q3331189 }
+              OPTIONAL { ?work rdfs:label ?titleNl . FILTER(LANG(?titleNl) = "nl") }
+              OPTIONAL { ?work rdfs:label ?titleEn . FILTER(LANG(?titleEn) = "en") }
+              OPTIONAL { ?work wdt:P577 ?date }
+            }
+            LIMIT 1000
+            SPARQL;
+    }
+
+    /** @param list<string> $titles */
+    public static function parseAuthorSearch(string $json, string $name, array $titles = []): ?string
+    {
+        $wanted = self::words(self::firstLast($name));
+        $mine = [];
+        foreach ($titles as $title) {
+            $mine[self::words($title)] = true;
+        }
+        $items = [];
+        foreach (self::rows($json) ?? [] as $row) {
+            $item = self::qid($row['item']['value'] ?? '');
+            if ($item === null) {
+                continue;
+            }
+            $items[$item]['names'][self::words((string) ($row['name']['value'] ?? ''))] = true;
+            foreach (['titleNl', 'titleEn'] as $key) {
+                $title = self::words((string) ($row[$key]['value'] ?? ''));
+                if ($title !== '') {
+                    $items[$item]['titles'][$title] = true;
+                }
+            }
+        }
+        $best = null;
+        $bestScore = -1;
+        foreach ($items as $item => $info) {
+            if (!in_array($wanted, array_map('strval', array_keys($info['names'])), true)) {
+                continue;
+            }
+            $known = array_map('strval', array_keys($info['titles'] ?? []));
+            // One of your books by them weighs more than any number of other books.
+            $score = count(array_intersect_key(array_flip($known), $mine)) * 10000 + count($known);
+            if ($score > $bestScore) {
+                $best = (string) $item;
+                $bestScore = $score;
+            }
+        }
+        return $best;
+    }
+
+    /** @return array<string, mixed>|null */
+    public static function parseAuthor(string $json): ?array
+    {
+        $rows = self::rows($json);
+        if ($rows === null) {
+            return null;
+        }
+        $values = [];
+        foreach ($rows as $row) {
+            $prop = (string) ($row['prop']['value'] ?? '');
+            $value = trim((string) ($row['value']['value'] ?? ''));
+            $label = trim((string) ($row['valueLabel']['value'] ?? $value));
+            $lang = (string) ($row['lang']['value'] ?? '');
+            $shown = in_array($prop, ['birthplace', 'deathplace', 'country', 'award'], true) ? $label : $value;
+            if ($shown !== '' && self::qid($shown) === null) {
+                $values[$prop][$lang][$shown] = true;
+            }
+        }
+        // Dutch where there is, else English, else whatever there is.
+        $first = static function (string $prop) use ($values): ?string {
+            foreach (['nl', 'en', 'mul', ''] as $lang) {
+                if (!empty($values[$prop][$lang])) {
+                    return (string) array_key_first($values[$prop][$lang]);
+                }
+            }
+            return null;
+        };
+        $all = static fn (string $prop): array => array_values(array_unique(array_map('strval', array_merge(
+            ...array_map('array_keys', array_values($values[$prop] ?? [])),
+        ))));
+        $date = static function (?string $value): ?array {
+            if ($value === null || !preg_match('/^([+-]?\d{1,4})-(\d{2})-(\d{2})/', $value, $m)) {
+                return null;
+            }
+            return ['year' => (int) $m[1], 'date' => $m[2] === '00' || $m[3] === '00' ? null : sprintf('%04d-%s-%s', (int) $m[1], $m[2], $m[3])];
+        };
+        $image = $first('image');
+        $wikipedia = null;
+        foreach (['nlwiki' => 'nl', 'enwiki' => 'en'] as $prop => $language) {
+            $url = $first($prop);
+            if ($url !== null && preg_match('~^https://' . $language . '\.wikipedia\.org/wiki/([^/?#]+)$~', $url, $m)) {
+                $wikipedia = [$language, rawurldecode($m[1])];
+                break;
+            }
+        }
+        $name = $first('label');
+        if ($name === null) {
+            return null;
+        }
+        return [
+            'name' => mb_substr($name, 0, 255),
+            'description' => ($d = $first('description')) !== null ? mb_substr($d, 0, 500) : null,
+            'born' => $date($first('born')),
+            'died' => $date($first('died')),
+            'birthplace' => $first('birthplace'),
+            'deathplace' => $first('deathplace'),
+            'countries' => array_slice($all('country'), 0, 3),
+            'awards' => array_slice($all('award'), 0, 15),
+            // Commons "Special:FilePath" link to the picture, over HTTPS.
+            'image' => $image !== null && preg_match('~^https?://commons\.wikimedia\.org/wiki/Special:FilePath/[^/?#]+$~', $image)
+                ? (string) preg_replace('~^http://~', 'https://', $image) : null,
+            'wikipedia' => $wikipedia,
+            'bio' => null,
+            'bio_language' => null,
+            'wikipedia_url' => null,
+        ];
+    }
+
+    /** "Reve, Gerard" → "Gerard Reve"; other names stay as they are. */
+    public static function firstLast(string $name): string
+    {
+        $name = trim($name);
+        if (preg_match('/^([^,]+),\s*([^,]+)$/u', $name, $m)) {
+            return trim($m[2]) . ' ' . trim($m[1]);
+        }
+        return $name;
+    }
+
     // --- series -----------------------------------------------------------------
 
     /**

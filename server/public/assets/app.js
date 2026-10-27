@@ -31,3 +31,41 @@ if (qrTarget && window.qrcode) {
   qr.make();
   qrTarget.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 4, scalable: true });
 }
+
+// Sharing a book: the phone's share sheet (Signal, WhatsApp, mail…) where there is one,
+// else copy the text. WhatsApp's link follows what you typed.
+const shareText = (id) => (document.getElementById(id) || {}).value || '';
+const copyText = async (button, text) => {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const area = document.getElementById(button.dataset.share || button.dataset.copy);
+    area.select();
+    document.execCommand('copy');
+  }
+  const label = button.textContent;
+  button.textContent = 'Gekopieerd ✓';
+  setTimeout(() => { button.textContent = label; }, 2000);
+};
+document.querySelectorAll('[data-share]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const text = shareText(button.dataset.share);
+    if (navigator.share) {
+      try {
+        await navigator.share({ text });
+      } catch (e) {
+        // Closed without choosing: nothing to do.
+      }
+    } else {
+      copyText(button, text);
+    }
+  });
+});
+document.querySelectorAll('[data-copy]').forEach((button) => {
+  button.addEventListener('click', () => copyText(button, shareText(button.dataset.copy)));
+});
+document.querySelectorAll('[data-whatsapp]').forEach((link) => {
+  link.addEventListener('click', () => {
+    link.href = 'https://wa.me/?text=' + encodeURIComponent(shareText(link.dataset.whatsapp));
+  });
+});

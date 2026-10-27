@@ -167,6 +167,8 @@ final class Web
             'loans' => $this->app->loans->forBook($id),
             'borrowers' => $this->app->loans->borrowers(),
             'mergeCandidates' => $this->app->books->mergeCandidates($book),
+            'shareOpinion' => $this->app->shareTexts($book)['opinion'],
+            'shareAskBack' => $this->app->shareTexts($book)['ask_back'],
             'tootKind' => $book['status'] === 'reading' ? 'started' : 'finished',
             'tootText' => $this->app->tooter->compose($book, $book['status'] === 'reading' ? 'started' : 'finished'),
         ]);
@@ -372,6 +374,111 @@ final class Web
         return $request->input('back') === 'series' && is_string($series)
             ? Response::redirect($this->app->url('/collections', ['series' => $series]))
             : Response::redirect($this->app->url('/series') . '#tips');
+    }
+
+    // --- authors and publishers ----------------------------------------------------
+
+    public function authors(Request $request): Response
+    {
+        return $this->app->render('authors', ['authors' => $this->app->authors->all()]);
+    }
+
+    /** A writer's page; looked up in Wikidata the first time (and after 30 days). */
+    public function author(Request $request): Response
+    {
+        $name = trim($request->query('name'));
+        $books = $name !== '' ? $this->app->authors->books($name) : [];
+        if ($books === []) {
+            return $this->app->render('404', [], 404);
+        }
+        try {
+            $profile = $this->app->authors->profile($name);
+        } catch (\Throwable $e) {
+            error_log("Auteur {$name} opzoeken mislukt: {$e}");
+            $profile = ['name' => $name, 'qid' => null, 'data' => null, 'fetched_at' => null];
+        }
+        $read = array_values(array_filter($books, static fn (array $b) => $b['status'] === 'read'));
+        $ratings = array_values(array_filter(array_column($books, 'rating'), static fn ($r) => $r !== null));
+        return $this->app->render('author', [
+            'name' => $name,
+            'profile' => $profile,
+            'books' => $books,
+            'readCount' => count($read),
+            'pagesRead' => array_sum(array_map(static fn (array $b) => (int) $b['pages'], $read)),
+            'rating' => $ratings ? round(array_sum($ratings) / count($ratings), 2) : null,
+            'works' => $profile['data'] !== null ? $this->app->authors->works($profile['data']) : [],
+        ]);
+    }
+
+    public function refreshAuthor(Request $request): Response
+    {
+        $name = trim((string) $request->input('name'));
+        try {
+            $profile = $this->app->authors->profile(Books::text($name, 255), refresh: true);
+            $this->app->flash($profile['qid'] !== null ? 'ok' : 'error', $profile['qid'] !== null
+                ? 'Opnieuw opgezocht bij Wikidata.' : 'Wikidata kent deze schrijver niet (of niet met deze naam).');
+        } catch (\Throwable $e) {
+            error_log("Auteur {$name} opzoeken mislukt: {$e}");
+            $this->app->flash('error', 'Opzoeken mislukt; probeer het later nog eens.');
+        }
+        return Response::redirect($this->app->url('/author', ['name' => $name]));
+    }
+
+    public function addAuthorWork(Request $request): Response
+    {
+        $name = trim((string) $request->input('name'));
+        try {
+            $id = $this->app->authors->addToRead(Books::text($name, 255), (string) $request->input('qid'));
+            $this->app->flash('ok', 'Op je “Wil ik lezen”-lijst gezet.');
+            return $this->toBook($id);
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+            return Response::redirect($this->app->url('/author', ['name' => $name]));
+        }
+    }
+
+    public function dismissAuthorWork(Request $request): Response
+    {
+        try {
+            $this->app->seriesParts->dismiss((string) $request->input('qid'));
+            $this->app->flash('ok', 'Die tip krijg je niet meer.');
+        } catch (InvalidArgumentException $e) {
+            $this->app->flash('error', $e->getMessage());
+        }
+        return Response::redirect($this->app->url('/author', ['name' => trim((string) $request->input('name'))]) . '#werk');
+    }
+
+    public function authorPhoto(Request $request, int $id): Response
+    {
+        $jpeg = $this->app->authors->photo($id);
+        return $jpeg === null
+            ? new Response('Geen foto', 404, ['Content-Type' => 'text/plain; charset=utf-8'])
+            : new Response($jpeg, 200, ['Content-Type' => 'image/jpeg', 'Cache-Control' => 'private, max-age=604800']);
+    }
+
+    public function publishers(Request $request): Response
+    {
+        $publishers = $this->app->books->publishers();
+        // Best rated: only publishers with a few rated books, so one 5-star book doesn't win.
+        $best = array_values(array_filter($publishers, static fn (array $p) => $p['rated'] >= 3));
+        usort($best, static fn (array $a, array $b) => [$b['rating'], $b['rated']] <=> [$a['rating'], $a['rated']]);
+        return $this->app->render('publishers', ['publishers' => $publishers, 'best' => array_slice($best, 0, 5)]);
+    }
+
+    public function publisher(Request $request): Response
+    {
+        $name = trim($request->query('name'));
+        $books = $name !== '' ? $this->app->books->byPublisher($name) : [];
+        if ($books === []) {
+            return $this->app->render('404', [], 404);
+        }
+        $stats = null;
+        foreach ($this->app->books->publishers() as $p) {
+            if ($p['key'] === Books::publisherKey($name)) {
+                $stats = $p;
+            }
+        }
+        return $this->app->render('publisher', ['name' => $stats['name'] ?? $name, 'books' => $books, 'stats' => $stats]);
     }
 
     // --- merging editions ---------------------------------------------------------

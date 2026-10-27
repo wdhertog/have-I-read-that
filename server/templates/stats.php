@@ -143,6 +143,7 @@
 <?php if ($topAuthors): ?>
 <section class="card">
   <h2>Meest gelezen auteurs</h2>
-  <ol><?php foreach ($topAuthors as $a): ?><li><?= $v->e($a['author']) ?> <span class="muted">(<?= $a['n'] ?>)</span></li><?php endforeach ?></ol>
+  <ol><?php foreach ($topAuthors as $a): ?><li><a href="<?= $v->url('/author', ['name' => App\Authors::names($a['author'])[0] ?? $a['author']]) ?>"><?= $v->e($a['author']) ?></a> <span class="muted">(<?= $a['n'] ?>)</span></li><?php endforeach ?></ol>
+  <p><a href="<?= $v->url('/authors') ?>">Alle auteurs</a> · <a href="<?= $v->url('/publishers') ?>">Uitgevers</a></p>
 </section>
 <?php endif ?>

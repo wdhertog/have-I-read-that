@@ -17,6 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import android.content.Intent
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -151,6 +155,7 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                 },
                 actions = {
                     if (book != null && id > 0) {
+                        ShareButton(book!!)
                         IconButton(onClick = { onEdit(id) }) { Icon(Icons.Default.Edit, contentDescription = "Bewerken") }
                         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Default.Delete, contentDescription = "Verwijderen") }
                     }
@@ -294,6 +299,36 @@ fun BookScreen(settings: Settings, id: Int, onBack: () -> Unit, onEdit: (Int) ->
                 }
             },
         )
+    }
+}
+
+/**
+ * Send a message about the book through Signal, WhatsApp, mail…: what you thought of
+ * it, or (when lent out) asking for it back. Opens the phone's share menu.
+ */
+@Composable
+private fun ShareButton(book: Book) {
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    val opinion = book.share?.opinion?.ifBlank { null } ?: "📖 “${book.title}”" + (if (book.author.isNotBlank()) " van ${book.author}" else "")
+    val askBack = book.share?.askBack
+    fun send(text: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(intent, "Delen via"))
+    }
+    Box {
+        IconButton(onClick = { if (askBack == null) send(opinion) else open = true }) {
+            Icon(Icons.Default.Share, contentDescription = "Delen")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Wat ik ervan vind") }, onClick = { open = false; send(opinion) })
+            askBack?.let { text ->
+                DropdownMenuItem(text = { Text("Terugvragen bij ${book.lentTo.orEmpty()}") }, onClick = { open = false; send(text) })
+            }
+        }
     }
 }
 

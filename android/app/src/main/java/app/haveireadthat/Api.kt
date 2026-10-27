@@ -72,11 +72,16 @@ data class Book(
     val awards: String? = null,
     @SerialName("lent_to") val lentTo: String? = null,
     @SerialName("lent_since") val lentSince: String? = null,
+    val share: ShareTexts? = null,
     val reads: List<Read> = emptyList(),
     val notes: List<Note> = emptyList(),
     val loans: List<Loan> = emptyList(),
     val posts: List<Post> = emptyList(),
 )
+
+/** Ready-made texts to send someone about a book (made by the server). */
+@Serializable
+data class ShareTexts(val opinion: String = "", @SerialName("ask_back") val askBack: String? = null)
 
 @Serializable
 data class Note(
