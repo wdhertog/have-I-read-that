@@ -222,6 +222,8 @@ final class App
         $this->view->share('publicPage', $this->publicPage());
         $this->view->share('publicTitle', $this->config->get('PUBLIC_TITLE', 'Wat ik lees'));
         $this->view->share('postByDefault', $this->config->bool('MASTODON_POST_BY_DEFAULT', true));
+        $this->view->share('path', $this->request?->path ?? '/');
+        $this->view->share('ownerName', $this->config->get('OWNER_NAME'));
         return Response::html($this->view->render($template, $vars), $status);
     }
 

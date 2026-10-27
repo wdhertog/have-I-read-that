@@ -47,6 +47,23 @@ final class View
         return $output;
     }
 
+    /** "2023-05-26" → "26 mei 2023" (empty for no date). */
+    public function date(?string $date): string
+    {
+        $time = $date !== null && $date !== '' ? strtotime($date) : false;
+        if ($time === false) {
+            return (string) $date;
+        }
+        $months = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+        return date('j', $time) . ' ' . $months[(int) date('n', $time) - 1] . ' ' . date('Y', $time);
+    }
+
+    /** "ebook" → "E-book". */
+    public function format(?string $format): string
+    {
+        return ['paperback' => 'Paperback', 'hardcover' => 'Hardcover', 'ebook' => 'E-book', 'audio' => 'Luisterboek'][$format] ?? (string) $format;
+    }
+
     public function e(mixed $value): string
     {
         return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -66,7 +83,8 @@ final class View
 
     public function rating(mixed $rating): string
     {
-        return Mastodon::formatRating($rating);
+        // Dutch decimal comma on the page; toots keep Mastodon's own format.
+        return str_replace('.', ',', Mastodon::formatRating($rating));
     }
 
     /** @param array<string, mixed> $book */

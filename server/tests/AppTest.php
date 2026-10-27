@@ -205,8 +205,8 @@ final class AppTest extends TestCase
         $this->web('POST', "{$location}/finish", ['finished' => '2024-01-10', 'rating' => '4,5', 'review' => 'Prachtig.', 'toot' => 'on']);
 
         $page = $this->web('GET', $location)->body;
-        self::assertStringContainsString('2024-01-01', $page);
-        self::assertStringContainsString('2024-01-10', $page);
+        self::assertStringContainsString('1 januari 2024', $page);
+        self::assertStringContainsString('10 januari 2024', $page);
         self::assertStringContainsString('Niet gepost: Mastodon is nog niet ingesteld.', $page);
         self::assertStringContainsString('★★★★½', $page);
 

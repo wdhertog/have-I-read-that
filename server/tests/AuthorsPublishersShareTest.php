@@ -215,9 +215,11 @@ final class AuthorsPublishersShareTest extends TestCase
         self::assertCount(3, $this->app->books->byPublisher('bezige bij'));
 
         $page = $this->app->handle(new Request('GET', '/publishers'))->body;
-        self::assertStringContainsString('Bezige Bij</a> <span class="muted">(4 ★, 3 boeken)', $page, 'best rated needs three books');
-        self::assertStringNotContainsString('Querido</a> <span class="muted">(5 ★', $page);
-        self::assertStringContainsString('3 boeken, waarvan 2 gelezen', $this->app->handle(new Request('GET', '/publisher', ['name' => 'Bezige Bij']))->body);
+        self::assertStringContainsString('Bezige Bij</a> <span class="muted">4 <span class="star" aria-hidden="true">★</span> · 3 boeken', $page, 'best rated needs three books');
+        self::assertStringNotContainsString('Querido</a> <span class="muted">5 <span class="star"', $page);
+        $page = $this->app->handle(new Request('GET', '/publisher', ['name' => 'Bezige Bij']))->body;
+        self::assertStringContainsString('<strong>3</strong><span>boeken in je kast', $page);
+        self::assertStringContainsString('<strong>2</strong><span>gelezen', $page);
     }
 
     public function testSharing(): void

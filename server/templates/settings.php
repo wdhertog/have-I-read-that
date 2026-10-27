@@ -1,6 +1,12 @@
 <?php /** @var App\View $v */ /** @var App\Mastodon $mastodon */ ?>
+<header class="page-head">
+  <div>
+    <h1>Instellingen</h1>
+    <p class="lead">De Android-app koppelen, tweestapsverificatie en Mastodon.</p>
+  </div>
+</header>
 <section class="card">
-  <h1>Android-app</h1>
+  <h2>Android-app</h2>
   <p>Vul in de app dit serveradres in, plus een token dat je hieronder aanmaakt:</p>
   <p class="token"><?= $v->e($serverUrl) ?></p>
   <?php if ($newToken): ?>
@@ -11,14 +17,14 @@
     <?= $v->csrf() ?>
     <input name="name" placeholder="Naam, bijv. Pixel 8" maxlength="100">
     <label class="check"><input type="checkbox" name="read_only"> Alleen lezen</label>
-    <button>Token aanmaken</button>
+    <button class="primary">Token aanmaken</button>
   </form>
   <?php if ($tokens): ?>
   <table>
-    <tr><th>Naam</th><th>Rechten</th><th>Aangemaakt</th><th>Laatst gebruikt</th><th></th></tr>
+    <thead><tr><th>Naam</th><th>Rechten</th><th>Aangemaakt</th><th>Laatst gebruikt</th><th></th></tr></thead>
     <?php foreach ($tokens as $t): ?>
     <tr>
-      <td><?= $v->e($t['name']) ?></td><td><?= $t['scope'] === 'read' ? 'alleen lezen' : 'volledig' ?></td><td><?= $v->e($t['created_at']) ?></td><td><?= $v->e($t['last_used_at'] ?? '—') ?></td>
+      <td><?= $v->e($t['name']) ?></td><td><?= $t['scope'] === 'read' ? 'alleen lezen' : 'volledig' ?></td><td><?= $v->e($v->date($t['created_at'])) ?></td><td><?= $t['last_used_at'] ? $v->e($v->date($t['last_used_at'])) : '—' ?></td>
       <td><form method="post" action="<?= $v->url("/settings/tokens/{$t['id']}/delete") ?>" class="inline" data-confirm="Token intrekken?"><?= $v->csrf() ?><button class="link">intrekken</button></form></td>
     </tr>
     <?php endforeach ?>
@@ -27,13 +33,13 @@
 </section>
 
 <section class="card">
-  <h1>Tweestapsverificatie</h1>
+  <h2>Tweestapsverificatie</h2>
   <?php if ($recoveryCodes): ?>
     <p><strong>Je herstelcodes</strong> (worden maar één keer getoond). Elke code werkt één keer, voor als je je telefoon kwijt bent. Bewaar ze in je wachtwoordmanager.</p>
     <p class="token"><?= $v->e(implode('  ', $recoveryCodes)) ?></p>
   <?php endif ?>
   <?php if ($twoFactor): ?>
-    <p>✅ Staat aan. Bij het inloggen vraagt de site na je wachtwoord om een code uit je authenticator-app. Nog <?= (int) $recoveryLeft ?> herstelcodes over.</p>
+    <p><span class="badge read">Aan</span> Bij het inloggen vraagt de site na je wachtwoord om een code uit je authenticator-app. Nog <?= (int) $recoveryLeft ?> herstelcodes over.</p>
     <form method="post" action="<?= $v->url('/settings/2fa/disable') ?>" class="row">
       <?= $v->csrf() ?>
       <input name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="Huidige code of herstelcode" required>
@@ -59,15 +65,15 @@
 </section>
 
 <section class="card">
-  <h1>Mastodon-koppeling</h1>
+  <h2>Mastodon-koppeling</h2>
   <?php if ($mastodon->configured()): ?>
     <p>Instance: <strong><?= $v->e($mastodon->instance()) ?></strong> · zichtbaarheid: <strong><?= $v->e($mastodon->visibility()) ?></strong></p>
     <form method="post" action="<?= $v->url('/settings/test') ?>"><?= $v->csrf() ?><button class="secondary">Test verbinding</button></form>
-    <?php if ($account): ?><p>✅ Verbonden als <a href="<?= $v->e(preg_match('#^https://#', (string) ($account['url'] ?? '')) ? $account['url'] : '#') ?>" target="_blank" rel="noopener">@<?= $v->e($account['acct'] ?? '') ?></a></p><?php endif ?>
+    <?php if ($account): ?><p><span class="badge read">Verbonden</span> als <a href="<?= $v->e(preg_match('#^https://#', (string) ($account['url'] ?? '')) ? $account['url'] : '#') ?>" target="_blank" rel="noopener">@<?= $v->e($account['acct'] ?? '') ?></a></p><?php endif ?>
   <?php else: ?>
     <p class="flash error">Nog niet ingesteld.</p>
   <?php endif ?>
-  <h2>Instellen</h2>
+  <h3>Instellen</h3>
   <ol>
     <li>Ga op je Mastodon-server naar <em>Voorkeuren → Ontwikkelaars → Nieuwe applicatie</em>.</li>
     <li>Vink alleen de scopes <code>write:statuses</code> en <code>read:accounts</code> aan.</li>
