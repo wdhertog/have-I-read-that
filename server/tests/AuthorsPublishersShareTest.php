@@ -140,6 +140,27 @@ final class AuthorsPublishersShareTest extends TestCase
             [$d['description'], $d['born']['year'], $d['born']['date'], $d['birthplace'], $d['deathplace'], $d['countries'], $d['awards']]);
         self::assertSame('Gerard Reve was een Nederlands schrijver.', $d['bio']);
         self::assertSame(['year' => 2006, 'month' => null, 'date' => null], $d['died'], 'no "1-1-2006" for a year-only date');
+
+        // John Flanagan's case: besides the right dates, two odd ones from 2012, with the
+        // death before the birth. The description's years decide; never died before born.
+        $rows = static fn (array $rows) => json_encode(['results' => ['bindings' => array_map(
+            static fn (array $row) => array_map(static fn ($v) => ['value' => (string) $v], $row), $rows)]]);
+        $normal = 'http://wikiba.se/ontology#NormalRank';
+        $flanagan = Wikidata::parseAuthor($rows([
+            ['prop' => 'label', 'value' => 'John Flanagan', 'lang' => 'en'],
+            ['prop' => 'description', 'value' => 'Australische schrijver (1944-2026)', 'lang' => 'nl'],
+            ['prop' => 'born', 'value' => '2012-05-13T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+            ['prop' => 'born', 'value' => '1944-05-22T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+            ['prop' => 'died', 'value' => '2012-05-11T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+            ['prop' => 'died', 'value' => '2026-03-01T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+        ]));
+        self::assertSame(['1944-05-22', '2026-03-01'], [$flanagan['born']['date'], $flanagan['died']['date']]);
+        $noDescription = Wikidata::parseAuthor($rows([
+            ['prop' => 'label', 'value' => 'Iemand', 'lang' => 'en'],
+            ['prop' => 'born', 'value' => '2012-05-13T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+            ['prop' => 'died', 'value' => '2012-05-11T00:00:00Z', 'precision' => '11', 'rank' => $normal],
+        ]));
+        self::assertNull($noDescription['died'], 'a death before the birth is left out');
         self::assertSame(12, $d['born']['month']);
         self::assertSame('https://nl.wikipedia.org/wiki/Gerard_Reve', $d['wikipedia_url']);
         self::assertTrue($d['photo']);

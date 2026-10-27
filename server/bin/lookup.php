@@ -16,13 +16,39 @@ if (PHP_SAPI !== 'cli') {
 use App\Catalog;
 use App\Config;
 use App\Http;
+use App\Wikidata;
 use App\StoryGraph;
 
 require dirname(__DIR__) . '/autoload.php';
 
+// php bin/lookup.php --author "John Flanagan": which writer Wikidata finds, and every
+// birth and death date it gives, with how precise and how trusted each one is.
+if (($argv[1] ?? '') === '--author') {
+    $name = (string) ($argv[2] ?? '');
+    $wikidata = (new Catalog(Config::load(dirname(__DIR__) . '/.env')))->wikidata();
+    $qid = $wikidata->findAuthor($name);
+    echo 'Wikidata: ', $qid !== null ? "https://www.wikidata.org/wiki/{$qid}" : 'niets gevonden (of niet bereikbaar)', PHP_EOL;
+    if ($qid === null) {
+        exit(1);
+    }
+    $json = Http::get('https://query.wikidata.org/sparql?format=json&query=' . rawurlencode(Wikidata::authorQuery($qid)));
+    $precision = [9 => 'jaar', 10 => 'maand', 11 => 'dag'];
+    foreach (json_decode((string) $json, true)['results']['bindings'] ?? [] as $row) {
+        $prop = $row['prop']['value'] ?? '';
+        if (in_array($prop, ['born', 'died', 'description'], true)) {
+            $rank = (string) preg_replace('/^.*#|Rank$/', '', (string) ($row['rank']['value'] ?? ''));
+            echo str_pad($prop, 12), $row['value']['value'] ?? '',
+                isset($row['precision']) ? ' (op ' . ($precision[(int) $row['precision']['value']] ?? 'precisie ' . $row['precision']['value']) . ", {$rank})" : '', PHP_EOL;
+        }
+    }
+    $author = Wikidata::parseAuthor((string) $json);
+    echo PHP_EOL, 'Gekozen: geboren ', json_encode($author['born'] ?? null), ', overleden ', json_encode($author['died'] ?? null), PHP_EOL;
+    exit;
+}
+
 $isbn = StoryGraph::cleanIsbn($argv[1] ?? '');
 if ($isbn === null) {
-    fwrite(STDERR, "Gebruik: php bin/lookup.php <ISBN> [--kb-xml]\n");
+    fwrite(STDERR, "Gebruik: php bin/lookup.php <ISBN> [--kb-xml]\n       php bin/lookup.php --author \"Naam\"\n");
     exit(1);
 }
 if (in_array('--kb-xml', $argv, true)) {
